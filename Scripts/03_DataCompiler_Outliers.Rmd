@@ -1,0 +1,489 @@
+```{r Setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+This script organizes the BioOptical phenotype data of corals collected in the American Samoa Feb 2026 expedition.
+
+### Load Packages
+```{r, echo=F, include=F}
+rm(list = ls())
+
+##Load Packages
+library(ggplot2) #Required for ggplots
+library(dplyr)
+library(gplots)
+library(gridExtra)
+library(car)
+library(vegan)
+library(reshape)
+library(reshape2)
+library(broom)
+library(pvclust)
+library(dendextend)
+library(colorspace)
+library(circlize)
+library(viridis)
+library(caret)
+library(tidyverse)
+library(tidyr)
+library(igraph)
+library(fs)
+library(here)
+library(stringr)
+library(janitor)
+#library(DescTools)
+
+source(here("Scripts/00_visualization_prep.R"))
+```
+
+# Functions
+```{r functions}
+
+movingAverage <- function(x, n=1, centered=FALSE) 
+{	if (centered) {
+        before <- floor  ((n-1)/2)
+        after  <- ceiling((n-1)/2)
+    } else {
+        before <- n-1
+        after  <- 0
+    }
+    s     <- rep(0, length(x))
+    count <- rep(0, length(x))
+	new <- x
+    count <- count + !is.na(new)
+    new[is.na(new)] <- 0
+    s <- s + new
+	i <- 1
+    while (i <= before) {
+        new   <- c(rep(NA, i), x[1:(length(x)-i)])
+		count <- count + !is.na(new)
+        new[is.na(new)] <- 0
+        s <- s + new
+        i <- i+1
+    }
+    i <- 1
+    while (i <= after) {
+        new   <- c(x[(i+1):length(x)], rep(NA, i))
+        count <- count + !is.na(new)
+        new[is.na(new)] <- 0
+        s <- s + new
+        i <- i+1
+    }
+    s/count
+}
+```
+
+
+# Loading ED50, Color, Sample Metadata, and MAPP Metadata
+```{r load metadata}
+#read in ed50 data (to know which samples were used in cbass) + to join
+ed50<-read.csv(here("Data", "EDsdf-all.csv"))
+color<- read.csv(here("Outputs", "color_slope.csv"))
+# colony_metadata<-read.csv(here ("Data/TUT_experimental_data.csv"))
+cbass_metadata<-read.csv(here("Data", "full_cbass_dataset.csv"))
+cbass_meta_clean <- cbass_metadata %>%
+  dplyr::rename(SampleID_clean = SpeciesID_clean)
+metric_lookup <- read.csv(here("Data", "MAPP_Metric_Lookup_Table_Compact.csv"))
+
+#clean and merge metadata
+extra_metadata <- cbass_meta_clean %>%
+  dplyr::select(SampleID_clean, Tank_color, Size_cm, Partial_mortality, Colony_depth_ft, DW)
+color_metrics <- color %>%
+  dplyr::select(SampleID, color_int = int, color_slope = slope, color_r2 = r2, color_p = p)
+ed <- ed50 %>%
+  left_join(color_metrics, by = c("SampleID_clean" = "SampleID")) %>%
+  left_join(extra_metadata, by = "SampleID_clean") %>%
+  relocate(SampleID_clean, Site, Species, ED5, ED50, ED95)
+#write.csv(ed, here("Outputs/ed50_colorslope_metadata.csv"))
+
+# Read the mapping file
+sample_meta_raw <- read.csv(here("Data", "ESA_coral_data_entry_2026-Collections.csv"), check.names = FALSE)
+sample_meta_raw <- sample_meta_raw[, !is.na(names(sample_meta_raw)) & names(sample_meta_raw) != ""]
+mapplist        <- read.csv(here("Data", "MAPP_Metadata-Sheet1.csv"), check.names = FALSE)
+
+sample_meta_prepped <- sample_meta_raw %>%
+  filter(`CBASS / Sophie` == "CBASS") %>%
+  mutate(
+    Bag_number = as.integer(`Bag #`),
+    Site       = as.integer(str_extract(Site, "\\d+")),
+    Date       = trimws(as.character(Date)),
+    Species    = trimws(toupper(Species))
+  )
+
+mapplist_prepped <- mapplist %>%
+  mutate(
+    Bag_number = as.integer(Bag_number),
+    Date       = trimws(as.character(Date)),
+    Species    = trimws(toupper(Species))
+  )
+
+sample_metadata <- sample_meta_prepped %>%
+  left_join(
+    mapplist_prepped %>% 
+      dplyr::select(Bag_number, Species, Date, Genotype, Latitude, Longitude, Cookie_no, Sophie) %>%
+      distinct(Bag_number, Species, Date, .keep_all = TRUE), # Safety deduplication on exact composite key
+    by = c("Bag_number", "Species", "Date")
+  ) %>%
+  mutate(
+    SampleID_clean = paste(Site, Species, Genotype, sep = "_") %>%
+      trimws() %>%
+      toupper()
+  )
+
+#write.csv(sample_metadata, file = here("Outputs", "AS26_MAPPmetadata.csv"), row.names = TRUE)
+
+
+```
+# Phenotyping
+### Load and Compile Processed Phenotype Data
+```{r compiling processed pheno}
+###### compiling all photophys to one csv ################# 
+data_dir <- here("Data", "phenotyping_data", "normalized")
+
+# 1. Get list of valid CBASS files
+file_list <- list.files(
+  path = data_dir, 
+  full.names = TRUE, 
+  pattern = "^[^aoiAOI]"
+)
+
+# 2. Extract metric description columns (uni, metric, stage, col, metrix) from first file
+photophys_meta <- read.csv(file_list[1])[, 2:6]
+
+# 3. Read metric values across all files, naming columns by their raw MessyID
+metric_list <- map(file_list, ~ read.csv(.x)[, 7])
+names(metric_list) <- path_file(file_list) # Retains raw file names for lookup_df
+
+# 4. Combine into wide photophysiology frame
+photophys_raw <- bind_cols(photophys_meta, as.data.frame(metric_list))
+
+# Save raw compiled photophys dataset
+#write.csv(photophys, file = here("Outputs", "photophys_compiled.csv"), row.names = FALSE)
+
+```
+
+# clean and transpose data
+```{r}
+# Filter out Fo/Fm (they were used for the calculation of some of the metrics, makign it redundant/artificially collinear to keep them in.)
+photophys <- photophys_raw %>% 
+  filter(!metric %in% c("Fo", "Fm", "fo", "fm"))
+
+longphoto <- photophys %>%
+  pivot_longer(
+    cols = -c(uni, metric, stage, col, metrix),
+    names_to = "MessyID",
+    values_to = "Value"
+  ) %>%
+  filter(
+    !(startsWith(MessyID, "t7") & grepl("icra|ahya", MessyID) & endsWith(MessyID, "005r.processed.csv")),
+    !(startsWith(MessyID, "t7") & grepl("aglo|aabr", MessyID) & endsWith(MessyID, "002r.processed.csv")),
+    !grepl("\\copy", MessyID, ignore.case = TRUE)
+  )
+#############################CHANGE
+# Systematically filter extreme outliers across ALL metrics
+longphoto_clean <- longphoto %>%
+  group_by(metric, col, stage) %>%
+  mutate(
+    Q1 = quantile(Value, 0.25, na.rm = TRUE),
+    Q3 = quantile(Value, 0.75, na.rm = TRUE),
+    IQR = Q3 - Q1,
+    lower_bound = Q1 - 3 * IQR, # Use 3.0 * IQR for conservative filtering
+    upper_bound = Q3 + 3 * IQR
+  ) %>%
+  filter(Value >= lower_bound & Value <= upper_bound) %>%
+  ungroup() %>%
+  dplyr::select(-Q1, -Q3, -IQR, -lower_bound, -upper_bound)
+
+# Re-pivot to wide format after outlier filtering
+widephoto2 <- longphoto_clean %>%
+  dplyr::select(MessyID, uni, Value) %>%
+  pivot_wider(
+    names_from = uni,
+    values_from = Value
+  )
+
+#lookup df and grab annotation_col from widephoto
+lookup_df <- data.frame(MessyID = widephoto2$MessyID) %>%
+  mutate(
+    SampleID_clean = MessyID %>%
+      # Remove leading T from timepoint prefix if present (e.g., T1_ -> 1_)
+      sub("^T(?=\\d+_)", "", ., perl = TRUE, ignore.case = TRUE) %>%
+      # Strip run numbers, extensions, and anything following the dash
+      sub("[-._]\\d{2,3}R.*$", "", ., ignore.case = TRUE) %>%
+      sub("[-._]PROCESSED.*$", "", ., ignore.case = TRUE) %>%
+      # Ensure uppercase species codes
+      toupper() %>%
+      # Insert underscore between species and colony number (AGLO10 -> AGLO_10)
+      sub("([A-Z]{4})(\\d+)$", "\\1_\\2", .)
+  )
+
+widephoto2 <- widephoto2 %>%
+  left_join(lookup_df, by = "MessyID") %>%
+  relocate(SampleID_clean, .after = MessyID)%>%
+  filter(SampleID_clean %in% ed50$SampleID_clean)
+```
+
+```{r}
+# Ensure unique row identifier for matrix row names
+widephoto2 <- widephoto2 %>%
+  distinct(SampleID_clean, .keep_all = TRUE)
+
+# Store clean sample IDs for row names
+sample_names <- widephoto2$SampleID_clean
+
+# Select ONLY numeric metric columns 
+fullyears <- widephoto2 %>%
+  dplyr::select(-any_of(c("MessyID", "SampleID", "SampleID_clean", "Species", "Site", "Date", "Run"))) %>%
+  # Keep columns that are strictly numeric
+  dplyr::select(where(is.numeric)) %>%
+  as.data.frame()
+
+# Assign sample IDs directly as matrix row names
+rownames(fullyears) <- sample_names
+
+# Remove columns with all NAs, any NA values, or zero standard deviation
+bad_cols <- colSums(is.na(fullyears)) > 0 | 
+  sapply(fullyears, function(x) is.na(sd(x, na.rm = TRUE)) || sd(x, na.rm = TRUE) == 0)
+
+fullyears_clean <- fullyears[, !bad_cols, drop = FALSE]
+
+Alls.cntn <- fullyears_clean
+
+# Pre-process using range method [0, 1]
+Alls.transit <- preProcess(Alls.cntn, method = "range")
+Alls.trans   <- predict(Alls.transit, Alls.cntn)
+
+cat(sprintf("Pre-processed Matrix: %d samples x %d metrics\n", 
+            nrow(Alls.trans), ncol(Alls.trans)))
+
+# unfiltered clean matrix ready for PERMANOVA / Clustering
+Alls.cor_clean <- as.matrix(Alls.trans)
+
+# Calculate Pearson correlation matrix across metrics
+descrCor <- cor(Alls.cor_clean)
+
+#save(Alls.cor_clean, file = here("Data", "Alls.cor_clean.RData"))
+
+#alls<-load(here("Data/Alls.cor_clean.RData"))
+```
+
+
+```{r}
+# PERMANOVA Matrix (Samples as Rows, Metrics as Columns)
+permanova_matrix2 <- Alls.cor_clean
+storage.mode(permanova_matrix2) <- "numeric"
+
+#write.csv(permanova_matrix, file = here("Outputs", "permanova_matrix_clean.csv"), row.names = TRUE)
+
+#make a metrics family column
+metric_names <- colnames(permanova_matrix2)
+
+
+# Filter and order ed to match permanova_matrix row order
+ed_aligned <- ed %>%
+  filter(SampleID_clean %in% rownames(permanova_matrix2)) %>%
+  arrange(match(SampleID_clean, rownames(permanova_matrix2)))
+
+# Set row names of metadata to SampleID_clean for direct mapping in pheatmap/vegan
+rownames(ed_aligned) <- ed_aligned$SampleID_clean
+
+
+# calc Pearson correlation matrix across metrics
+cor_matrix <- cor(permanova_matrix2, use = "pairwise.complete.obs", method = "pearson")
+cor_matrix[is.na(cor_matrix) | is.nan(cor_matrix)] <- 0
+
+# run findCorrelation at 0.90
+cor_cutoff <- 0.90
+high_cor_idx <- findCorrelation(cor_matrix, cutoff = cor_cutoff)
+
+# id traits to retain (handles edge case where high_cor_idx is empty)
+if (length(high_cor_idx) > 0) {
+  retained_trait_names <- colnames(permanova_matrix2)[-high_cor_idx]
+} else {
+  retained_trait_names <- colnames(permanova_matrix2)
+}
+
+cat("Total initial traits:", ncol(permanova_matrix2), "\n")
+cat("Traits retained after correlation (r =", cor_cutoff, ") filtering:", length(retained_trait_names), "\n")
+
+#get metric info from lookup table
+# Join directly to retained traits to pull Family & Short Name from the CSV
+#    (Adjust column names below to match your exact CSV headers, e.g., "Metric_Family" or "Family")
+# Get metric info from lookup table using correct column names
+metric_families <- data.frame(Metric_Code = retained_trait_names) %>%
+  left_join(metric_lookup, by = c("Metric_Code" = "Metric.Name")) %>%
+  mutate(
+    # Use Root.Metric if available, otherwise fall back to Metric_Code
+    Clean_Label = ifelse(!is.na(Root.Metric) & Root.Metric != "", Root.Metric, Metric_Code)
+  )
+
+# Create named vector for plot annotations/labels
+metric_label_map <- setNames(metric_families$Clean_Label, metric_families$Metric_Code)
+
+
+# Subset filtered traits (Samples x Retained Metrics)
+permanova_matrix_filtered2 <- permanova_matrix2[, retained_trait_names, drop = FALSE]
+
+# Ensure metadata strictly matches the exact sample order of the filtered matrix
+meta_filtered2 <- ed_aligned %>%
+  filter(SampleID_clean %in% rownames(permanova_matrix_filtered2)) %>%
+  arrange(match(SampleID_clean, rownames(permanova_matrix_filtered2)))
+
+# Verify row order is identical (CRITICAL for vegan functions)
+stopifnot(identical(rownames(permanova_matrix_filtered2), meta_filtered2$SampleID_clean))
+
+```
+
+```{r}
+# =================================
+# hclust
+# =================================
+set.seed(123)
+fit_cbb2 <- pvclust(
+  t(permanova_matrix_filtered2),
+  method.hclust = "ward.D2",
+  method.dist   = "canberra",
+  nboot         = 10000,
+  parallel      = TRUE
+)
+
+#load(here("Outputs", "photophys_preprocessed_data.RData"))
+
+# get hclust tree from pvclust fit
+my_hclust2 <- fit_cbb2$hclust
+original_labels <- my_hclust2$labels # SampleIDs (e.g., "11_AABR_1")
+
+# extract cluster across K = 2 through K = 15
+k_matrix2 <- cutree(my_hclust2, k = 2:15)
+
+# convert into a clean lookup dataframe with "K_2", "K_3" columns
+k_lookup2 <- as.data.frame(k_matrix2) %>%
+  rename_with(~ paste0("K_", 2:15)) %>%
+  rownames_to_column("SampleID_clean") %>%
+  mutate(across(starts_with("K_"), ~ factor(paste0("Cluster_", .x))))
+
+# join all K_2 through K_15 cluster columns into meta_filtered
+meta_filteredK2 <- meta_filtered2 %>%
+  left_join(k_lookup2, by = "SampleID_clean")
+
+# verify row alignment
+stopifnot(identical(rownames(permanova_matrix_filtered2), meta_filteredK2$SampleID_clean))
+
+cat("\n--- K_3 CLUSTER DISTRIBUTION ACROSS SPECIES ---\n")
+print(table(meta_filteredK2$K_3, meta_filteredK2$Species))
+
+print(table(meta_filteredK2$K_3, meta_filteredK2$Species, meta_filteredK2$Site))
+
+```
+
+
+```{r}
+#save for downstream analyses
+save(
+  widephoto2,
+  longphoto,
+  longphoto_clean,
+  lookup_df,
+  ed_aligned,
+  #permanova_matrix,
+  permanova_matrix_filtered2,
+  #metric_families,
+  #metric_label_map,
+  meta_filtered2,
+  meta_filteredK2,
+  fit_cbb2,
+  file = here("Outputs", "photophys_preprocessed_data2.RData")
+)
+```
+
+```{r}
+library(tidyverse)
+library(ggtree)
+library(ggnewscale)
+library(here)
+
+# =========================================================================
+# 1. PREPARE METADATA DATAFRAME
+# =========================================================================
+# Ensure meta_filteredK has clean factors and labels
+meta_tree <- meta_filteredK2 %>%
+  mutate(
+    # Format K_3 labels to match roman_map ("Cluster I", "Cluster II", "Cluster III")
+    K_3_label = roman_map[as.character(K_3)],
+    K_3_label = factor(K_3_label, levels = c("Cluster I", "Cluster II", "Cluster III")),
+    Symbiont  = "Durusdinium trenchii",
+    Site      = as.factor(Site),
+    Species   = as.factor(Species)
+  )
+
+# Set Cluster Colors
+cluster_cols <- c(
+  "Cluster I"   = "violet",
+  "Cluster II"  = "orange",
+  "Cluster III" = "cyan"
+)
+symbiont_cols <- c("Durusdinium trenchii" = "#2E8B57")
+# =========================================================================
+# 2. BUILD BASE GGTREE WITH SPP LEAF SHAPES
+# =========================================================================
+# Convert hclust tree directly to a ggtree object
+p_tree <- ggtree(my_hclust2) %<+% meta_tree +
+  geom_tippoint(aes(shape = Species, fill = Site), size = 2.5) +
+  scale_fill_manual(values = site_colors) +
+  scale_shape_manual(values = species_shapes) +
+  theme_tree2() +
+  labs(title = "Photophysiological Dendrogram (ggtree Alignment)")
+# =========================================================================
+# 2. BUILD BASE GGTREE WITH SITE LEAF SHAPES
+# =========================================================================
+# Convert hclust tree directly to a ggtree object
+p_tree <- ggtree(my_hclust2) %<+% meta_tree +
+  geom_tippoint(aes(shape = Site), size = 2.5) +
+  scale_color_manual(values = site_colors) +
+  scale_shape_manual(values = site_shapes) +
+  theme_tree2() +
+  labs(title = "Photophysiological Dendrogram (ggtree Alignment)")
+
+# =========================================================================
+# 3. ATTACH COLOR HEATMAP TILES TO LEAVES (MATCHED BY SampleID_clean)
+# ========================================================================
+# Track 1: Cluster (K=3)
+df_k3 <- meta_tree %>% 
+  dplyr::select(SampleID_clean, `Cluster (K=3)` = K_3_label) %>% 
+  column_to_rownames("SampleID_clean")
+
+p_tree1 <- gheatmap(p_tree, df_k3, offset = 50, width = 0.05, colnames_angle = 90, colnames_offset_y = 0.5) +
+  scale_fill_manual(values = cluster_cols, name = "Cluster (K=3)")
+
+# Track 2: Symbiont Species
+p_tree2 <- p_tree1 + new_scale_fill()
+
+df_sym <- meta_tree %>% 
+  dplyr::select(SampleID_clean, `Symbiont Species` = Symbiont) %>% 
+  column_to_rownames("SampleID_clean")
+
+p_tree3 <- gheatmap(p_tree2, df_sym, offset = 150, width = 0.05, colnames_angle = 90, colnames_offset_y = 0.5) +
+  scale_fill_manual(values = symbiont_cols, name = "Symbiont Species")
+
+# Track 3: Host Species
+p_tree4 <- p_tree3 + new_scale_fill()
+
+df_host <- meta_tree %>% 
+  dplyr::select(SampleID_clean, `Host Species` = Species) %>% 
+  column_to_rownames("SampleID_clean")
+
+p_final <- gheatmap(p_tree4, df_host, offset = 250, width = 0.05, colnames_angle = 90, colnames_offset_y = 0.5) +
+  scale_fill_manual(values = species_colors, name = "Host Species")
+
+# =========================================================================
+# 4. SAVE HIGH-RES PLOT
+# =========================================================================
+# ggsave(
+#   filename = here("Plots", "ggtree_Annotated_Dendrogram.pdf"),
+#   plot     = p_final,
+#   width    = 12,
+#   height   = 10,
+#   units    = "in"
+#)
+```
+

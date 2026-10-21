@@ -1,0 +1,104 @@
+library(tidyverse)
+library(dendextend)
+library(here)
+library(gplots)
+library(RColorBrewer)
+library(pheatmap)
+
+# =========================================================================
+# 1. Load Data & Prepare Dendrogram Object
+# =========================================================================
+load(here("Outputs", "photophys_preprocessed_data.RData"))
+source(here("Scripts/00_visualization_prep.R"))
+
+library(tidyverse)
+library(dendextend)
+library(here)
+
+# =========================================================================
+# 1. Run pheatmap quietly and capture its EXACT leaf order
+# =========================================================================
+# Ensure pheatmap is saved to an object 'ph'
+ph <- pheatmap(
+  heatmap_matrix_scaled,
+  cluster_rows = TRUE,
+  cluster_cols = my_hclust, # Your pvclust / hclust object
+  silent       = TRUE       # Suppresses plotting while extracting structure
+)
+
+# Extract the exact ordered vector of sample names as rendered by pheatmap
+ordered_samples <- colnames(heatmap_matrix_scaled)[ph$tree_col$order]
+
+# =========================================================================
+# 2. Re-align Metadata Directly to the pheatmap Sequence
+# =========================================================================
+meta_aligned <- data.frame(SampleID_clean = ordered_samples) %>%
+  left_join(meta_filteredK, by = "SampleID_clean") %>%
+  mutate(
+    Symbiont  = "Durusdinium trenchii",
+    K_3_label = roman_map[as.character(K_3)]
+  )
+
+# Build metadata tracks using the strictly ordered metadata
+color_host <- species_colors[as.character(meta_aligned$Species)]
+color_sym  <- c("Durusdinium trenchii" = "#2E8B57")[as.character(meta_aligned$Symbiont)]
+color_k3   <- ann_colors$K_3[as.character(meta_aligned$K_3_label)]
+
+annotation_tracks <- cbind(
+  "Host Species"     = color_host,
+  "Symbiont Species" = color_sym,
+  "Cluster (K=3)"    = color_k3
+)
+
+# =========================================================================
+# 3. Rotate the Standalone Dendrogram to Match pheatmap 1:1
+# =========================================================================
+# Convert hclust object to dendrogram and rotate leaves using pheatmap order
+d_obj <- as.dendrogram(ph$tree_col)
+
+# Format leaf shapes and site node colors in the EXACT ordered sequence
+leaf_sites  <- as.character(meta_aligned$Site)
+leaf_colors <- site_colors[leaf_sites]
+leaf_pch    <- site_shapes[leaf_sites]
+
+d_obj <- d_obj %>%
+  set("leaves_pch", leaf_pch) %>%
+  set("leaves_col", leaf_colors) %>%
+  set("leaves_cex", 1.2) %>%
+  set("labels_cex", 0.4)
+
+# =========================================================================
+# 4. Plot Annotated Dendrogram
+# =========================================================================
+pdf(file = here("Plots", "Aligned_Sample_Dendrogram.pdf"), width = 12, height = 10)
+
+layout(matrix(c(1, 2), nrow = 1), widths = c(3.5, 1.2))
+
+# Panel 1: Dendrogram + Color Tracks
+par(mar = c(5, 2, 4, 8))
+plot(
+  d_obj, 
+  horiz = TRUE, 
+  main  = "Photophysiological Sample Clustering (Matched to Heatmap Order)",
+  xlab  = "Height"
+)
+
+colored_bars(
+  colors    = annotation_tracks, 
+  dend      = d_obj, 
+  rowLabels = colnames(annotation_tracks),
+  horiz     = TRUE,
+  y_shift   = -0.5,
+  bar_width = 0.3
+)
+
+# Panel 2: Legends
+par(mar = c(1, 1, 1, 1))
+plot.new()
+
+legend("topleft", legend = names(species_colors), fill = species_colors, title = "Host Species", bty = "n", cex = 0.8)
+legend("left", legend = "Durusdinium trenchii", fill = "#2E8B57", title = "Symbiont Species", bty = "n", cex = 0.8)
+legend("bottomleft", legend = names(ann_colors$K_3), fill = ann_colors$K_3, title = "Cluster (K=3)", bty = "n", cex = 0.8)
+legend("center", legend = names(site_colors), col = site_colors, pch = site_shapes[names(site_colors)], title = "Site (Leaf Nodes)", bty = "n", pt.cex = 1.2, cex = 0.8)
+
+dev.off()

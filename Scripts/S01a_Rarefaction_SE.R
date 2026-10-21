@@ -1,0 +1,341 @@
+rm(list=ls())
+#load packages
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(readxl)
+library(rstudioapi)
+library(RColorBrewer)
+library(CBASSED50) #Voolstra R package
+library(stringr)
+
+# 1. Source prep script and load shapefile
+source(here("Scripts", "00_visualization_prep.R"))
+
+fl=list.files(path = "./Data/",pattern = "_PAM.csv",full.names = T)
+raw_df=NULL
+for(i in 1:length(fl)){
+  this_df=read.csv(fl[i])
+  raw_df=rbind(raw_df,this_df)  
+}
+MC=as.vector(mandatory_columns())
+names(raw_df)
+points=raw_df %>% 
+  dplyr::select(any_of(MC)) %>% 
+  mutate(Colony=paste0(Species,"_s",formatC(Site,flag=0,width=2),"_c",formatC(Genotype,flag=0,width=2)),
+         Genotype=Colony) %>% 
+  dplyr::select(-Colony) 
+
+#Pnt %>% group_by(Colony) %>% summarize(Nt=length(unique(Temperature))) %>% ggplot(aes(x=Nt))+geom_histogram()
+
+#r process-and-validate-cbass-dataset
+PPpoints <- preprocess_dataset(points)
+validate_cbass_dataset(PPpoints)
+
+grouping_properties <- c("Genotype")
+drm_formula <- "Pam_value ~ Temperature"
+
+Allmodels <- fit_drms(PPpoints, grouping_properties, drm_formula, is_curveid = TRUE)
+#All_ED50 <- get_all_eds_by_grouping_property(models = Allmodels)
+#Get ED50 Prediction and error
+All_ED50.ci95=data.frame(Genotype=names(Allmodels),
+                         ED50=unlist(lapply(Allmodels,function(m){
+                           sm=summary(m)
+                           return(sm$coefficients[3,1])
+                         })),
+                         ED50ci95=unlist(lapply(Allmodels,function(m){
+                           sm=summary(m)
+                           return(1.96*sm$coefficients[3,2])
+                         })))
+
+ROUNDS=max(sapply(X = 4:8,FUN = choose,n=8))
+BIC_df=data.frame(
+  Round = 0,
+  Genotype=names(Allmodels),
+  Nt=unlist(lapply(Allmodels,function(m){return(nrow(m$data))})),
+  BIC=unlist(lapply(Allmodels,BIC)))
+BIC_df=BIC_df %>% left_join(All_ED50.ci95,by=join_by("Genotype"))
+ED50dt_df=PPpoints %>% 
+  left_join(All_ED50.ci95[,c("Genotype","ED50")],by=join_by("Genotype")) %>% 
+  mutate(ED50dT=Temperature-ED50) %>% 
+  group_by(Genotype) %>% 
+  summarize(RMS_ED50dT=sqrt(mean(ED50dT^2)))
+BIC_df=BIC_df %>% left_join(ED50dt_df,by="Genotype")
+out_df=BIC_df %>% dplyr::select(-Round) %>% mutate(PhPh_Genotype=paste0("t",as.numeric(substr(Genotype,7,8)),"_",str_to_lower(substr(Genotype,1,4)),as.numeric(substr(Genotype,11,12))))
+write.csv(x = out_df,file = "./Data/AS26_ED50_CI_BIC_TAO.csv")
+
+#BIC_df$Nt[BIC_df$Nt==7]=7.5
+#BIC_df$CIpval=NA
+#BIC_df$BICpval=NA
+minrare=4
+maxrare=7
+for (round in 1:ROUNDS){
+  for (r in minrare:maxrare){
+    #rarify subset
+    this_PPp=PPpoints %>% group_by(Genotype) %>% sample_n(size=r)
+    #Fit DRMS
+    this_models <- fit_drms(this_PPp, grouping_properties, drm_formula, is_curveid = TRUE)
+    
+    # #Get ED50 fit
+    # this_ED50 <- get_all_eds_by_grouping_property(models = this_models)
+    
+    #Get ED50 Prediction and error
+    this_ED50.ci95=data.frame(Genotype=names(this_models),
+                              ED50=unlist(lapply(this_models,function(m){
+                                sm=summary(m)
+                                return(sm$coefficients[3,1])
+                              })),
+                              ED50ci95=unlist(lapply(this_models,function(m){
+                                sm=summary(m)
+                                return(1.96*sm$coefficients[3,2])
+                              })))
+    
+    #GET BIC
+    this_BIC_df=data.frame(
+      Round=round,
+      Genotype=names(this_models),
+      Nt=unlist(lapply(this_models,function(m){return(nrow(m$data))})),
+      BIC=unlist(lapply(this_models,BIC)))
+    
+    #join 'em
+    this_BIC_df=this_BIC_df %>% left_join(this_ED50.ci95,by=join_by("Genotype"))
+    
+    #get RMS_deltaT
+    this_ED50dt_df=this_PPp %>% 
+      left_join(All_ED50.ci95[,c("Genotype","ED50")],by=join_by("Genotype")) %>% 
+      mutate(ED50dT=Temperature-ED50) %>% 
+      group_by(Genotype) %>% 
+      summarize(RMS_ED50dT=sqrt(mean(ED50dT^2)))
+    this_BIC_df=this_BIC_df %>% left_join(this_ED50dt_df,by="Genotype")
+    
+    BIC_df=rbind(BIC_df,this_BIC_df)
+    print(paste0("Round ",round," of ",ROUNDS,". Rarify N=",r))
+  }
+}
+dim(BIC_df)
+BIC_df=BIC_df %>% distinct()
+dim(BIC_df)
+########################################
+save_rarefaction_data <- function(df, filepath = "./Data/Rarefaction_Results.csv") {
+  df %>%
+    dplyr::distinct() %>%
+    write.csv(file = filepath, row.names = FALSE)
+  cat("Rarefaction dataset successfully saved to:", filepath, "\n")
+}
+
+# Example usage right after your rarefaction loop and distinct check:
+save_rarefaction_data(BIC_df, "./Data/Rarefaction_Results.csv")
+# After your loop and p-value calculations:
+write.csv(x = out_df, file = "./Data/AS26_ED50_CI_BIC_TAO.csv")
+
+# Save the complete dataset (includes ED50, CIs, BIC, RMS_ED50dT, p-values)
+saveRDS(BIC_df, file(here("Outputs/BIC_df_rarefaction.rds")))
+##################
+
+for(r in (minrare+1):(maxrare+1)){
+  modBIC=t.test(subset(BIC_df,Nt==(r))$BIC,subset(BIC_df,Nt==(r-1))$BIC)
+  modCI=t.test(subset(BIC_df,Nt==(r))$ED50ci95,subset(BIC_df,Nt==(r-1))$ED50ci95)
+  BIC_df$BICpval[BIC_df$Nt==r]=p.adjust(modBIC$p.value,method="fdr",n=4)
+  BIC_df$CIpval[BIC_df$Nt==r]=p.adjust(modCI$p.value,method="fdr",n=4)
+}
+
+BAD_THRESHOLD=2
+stepmet=BIC_df %>% group_by(Nt) %>% 
+  summarize(meded50ci=median(ED50ci95,na.rm=T),
+            medBIC=median(BIC,na.rm=T),
+            pBAD=length(which(ED50ci95>=BAD_THRESHOLD))/length(ED50ci95))
+CI_step_plot=BIC_df %>%
+  filter(Nt>3) %>%
+  mutate(ED50ci95=ifelse(ED50ci95>10,10,ED50ci95),
+         SIG_CI=CIpval<0.05) %>% 
+  ggplot(aes(x=factor(Nt),y=ED50ci95))+
+  geom_violin(aes(fill=factor(SIG_CI)),quantile.linetype = c(2,1,2))+
+  geom_jitter(width=.1,height=0,alpha=.1,size=1)+
+  geom_text(y=-2,hjust=0,nudge_x = 0.05,
+            aes(label=paste0("CI95md: ",round(meded50ci,2),"\nPct Poor Fit = ",round(pBAD*100,1),"%")),data=stepmet)+
+  theme_bw()+
+  scale_fill_manual(name="Significant \nImprovement from\nPrevious Step",
+                    values=c("TRUE"="gold","FALSE"="darkred","NA"="gray75"),drop=F)+
+  xlab("Number of Temperature Steps in ED50 Fit")+
+  ylab("Goodness of Fit\n ED50 95% Confidence Interval")+
+  ggtitle("Goodness of Fit Improves with More Temperature Steps\n70 Rounds of Rarefaction: ED50 Confidence Interval (lower implies better fit)")+
+  scale_y_log10(breaks=c(0.01,.1,1,10,20));CI_step_plot
+BIC_step_plot=BIC_df %>%
+  filter(Nt>3) %>%
+  mutate(ED50ci95=ifelse(ED50ci95>10,10,ED50ci95),
+         SIG_BIC=BICpval<0.05) %>% 
+  ggplot(aes(x=factor(Nt),y=BIC))+
+  geom_violin(aes(fill=factor(SIG_BIC)),quantile.linetype = c(2,1,2))+
+  geom_jitter(width=.1,height=0,alpha=.1,size=.1)+
+  geom_text(y=-50,hjust=0,nudge_x = .05,
+            aes(label=paste0("BICmd: ",round(medBIC,2))),data=stepmet)+
+  theme_bw()+
+  scale_fill_manual(name="Significant \nImprovement from\nPrevious Step",
+                    values=c("TRUE"="gold","FALSE"="darkred","NA"="gray75"),drop=F)+
+  xlab("Number of Temperature Steps in ED50 Fit")+
+  ylab("Goodness of Fit\nBayes Information Criterion")+
+  ggtitle("Goodness of Fit Improves with More Temperature Steps:\n70 Rounds of Rarefaction: BIC (lower implies better fit)");BIC_step_plot
+
+library(patchwork)
+
+ABstepplot=CI_step_plot/BIC_step_plot;ABstepplot
+sc=1.5
+ggsave(plot = ABstepplot,filename = "./Plots/Rarefaction_StepPlots.jpg",width=sc*10.5,height=sc*8)
+
+BIC_df
+
+BIC_df %>% filter(Nt>3) %>% ggplot(aes(x=RMS_ED50dT,y=ED50ci95))+
+  geom_point()+xlim(c(0,6))+ylim(c(0,2))+facet_wrap(factor(Nt)~.)+stat_smooth(method = "gam")
+
+BIC_df_rare=BIC_df
+
+library(emmeans)
+library(lmerTest)
+
+CIWINDOW=.2#quantile(BIC_df$ED50ci95,.25,na.rm=T);CIWINDOW
+CIWINDOWs=c(seq(.1,1,by=.1),1.5,2,Inf)
+cidf=data.frame(CIw=CIWINDOWs,SpP=NA,delMN=NA);cnt=1
+for(CIWINDOW in CIWINDOWs){
+  ed50_test=BIC_df %>% filter(ED50ci95<CIWINDOW) %>% 
+    mutate(Site=substr(Genotype,6,8),Species=substr(Genotype,1,4)) %>% 
+    filter(Species%in%c("ICRA","AGLO")) 
+  nrow(ed50_test)
+  ciplot=ed50_test %>% 
+    ggplot(aes(x=Species,y=ED50,ymin=ED50-ED50ci95,ymax=ED50-ED50ci95,color=Species))+
+    geom_boxplot()+geom_jitter(width=.25,height=0)+ggtitle(CIWINDOW)
+  print(ciplot)
+  modtest=lmer(ED50~Species+(1|Site),data=ed50_test)
+  #odtest=lm(ED50~Species,data=ed50_test)
+  smod=summary(modtest)
+  Spmn=as.data.frame(emmeans(object = modtest,specs = ~ Species))
+  cidf$SpP[cnt]=smod$coefficients[2,5]
+  cidf$delMN[cnt]=diff(Spmn$emmean)
+  Sys.sleep(2);cnt=cnt+1
+}
+#########################################################
+library(ggplot2)
+library(dplyr)
+library(patchwork)
+
+# Color settings
+sig_color <- "#2B8CBE"      # Color for significant improvement
+no_sig_color <- "gray85"     # Color for no significance / base
+
+# Define bad threshold and metrics
+BAD_THRESHOLD <- 2
+
+stepmet <- BIC_df %>%
+  filter(Nt > 3) %>%
+  group_by(Nt) %>%
+  summarize(
+    meded50ci = median(ED50ci95, na.rm = TRUE),
+    pBAD = mean(ED50ci95 >= BAD_THRESHOLD, na.rm = TRUE) * 100,
+    SIG_CI = any(CIpval < 0.05, na.rm = TRUE)
+  )
+
+# -----------------------------------------------------------------------------
+# Top Plot: Goodness of Fit (ED50 95% CI)
+# -----------------------------------------------------------------------------
+readRDS(here("Outputs", "BIC_df_rarefaction.rds"))
+
+library(ggplot2)
+library(dplyr)
+library(patchwork)
+
+# Define significance color (highlight) and no-significance color
+sig_color <- "lightblue"      # Nice teal/blue for significant steps
+no_sig_color <- "white"     # Base color for non-significant steps
+NA_sig_color <- "darkgrey"
+BAD_THRESHOLD <- 2
+
+stepmet <- BIC_df %>%
+  filter(Nt > 3) %>%
+  group_by(Nt) %>%
+  summarize(
+    meded50ci = median(ED50ci95, na.rm = TRUE),
+    pBAD = mean(ED50ci95 >= BAD_THRESHOLD, na.rm = TRUE) * 100,
+    SIG_CI = any(CIpval < 0.05, na.rm = TRUE)
+  )
+
+# -----------------------------------------------------------------------------
+# Top Plot: Goodness of Fit (Violin Plot)
+# -----------------------------------------------------------------------------
+plot_gof <- BIC_df %>%
+  filter(Nt > 3) %>%
+  mutate(
+    ED50ci95 = ifelse(ED50ci95 > 10, 10, ED50ci95),
+    SIG_CI = CIpval < 0.05
+  ) %>%
+  ggplot(aes(x = factor(Nt), y = ED50ci95)) +
+  geom_violin(aes(fill = factor(SIG_CI)), width = 1.05, quantile.linetype = c(2, 1, 2), color = "gray30") +
+  geom_jitter(width = 0.1, height = 0, alpha = 0.01, size = 1) +
+  scale_y_log10(breaks = c(0.01, 0.1, 1, 10)) +
+  scale_x_discrete(expand = c(0, 0)) +
+  scale_fill_manual(
+    name = "Significant \nImprovement from\nPrevious Step",
+    values = c("TRUE" = sig_color, "FALSE" = no_sig_color, "NA" = "darkgrey"),
+    labels = c("TRUE" = "Yes", "FALSE" = "No")
+  ) +
+  labs(
+    y = "Goodness of Fit",
+    x = NULL
+  ) +
+  theme_bw(base_size = 16) +
+  theme(
+    axis.title.y = element_text(face = "bold", size = 15),
+    axis.text = element_text(size = 14, color = "black"),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    # Position legend in bottom-right corner inside panel
+    legend.position = "inside",
+    legend.position.inside = c(0.98, 0.02),
+    legend.justification = c(1, 0),
+    legend.direction = "horizontal",
+    legend.box.just = "center",
+    legend.title = element_text(size = 10, face = "bold"),
+    legend.text = element_text(size = 9),
+    legend.background = element_rect(fill = "white", color = "black", linewidth = 0.3),
+    legend.margin = ggplot2::margin(t = 4, r = 6, b = 4, l = 6)
+  )
+
+plot_gof
+
+# -----------------------------------------------------------------------------
+# Bottom Plot: % Poor Fits (Bar Chart with Zero Gap)
+# -----------------------------------------------------------------------------
+plot_poor_fits <- ggplot(stepmet, aes(x = factor(Nt), y = pBAD, fill = factor(SIG_CI))) +
+  geom_col(width = 1, color = "white", fill = "darkgrey", linewidth = 0.8) +
+  scale_x_discrete(expand = c(0, 0)) +
+  # scale_fill_manual(
+  #   values = c(#gray85,
+  #   guide = "none"
+  # ) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +
+  labs(
+    x = "Number of Temperature Steps in ED50 Fit",
+    y = "% Poor Fits"
+  ) +
+  theme_bw(base_size = 16) +
+  theme(
+    axis.title = element_text(face = "bold", size = 15),
+    axis.text = element_text(size = 14, color = "black"),
+    panel.grid.minor = element_blank(),
+    panel.grid.major.x = element_blank())
+
+# -----------------------------------------------------------------------------
+# Stack Vertically with Aligned Axes
+# -----------------------------------------------------------------------------
+final_plot <- plot_gof / plot_poor_fits + 
+  plot_layout(heights = c(2, 1))+
+  plot_annotation(tag_levels = list(c("C", "D")))
+final_plot
+# Save with a narrower width to laterally compress the figure uniformly
+ggsave(
+  filename = "./Plots/Goodness_of_Fit_over_Poor_Fits.jpg",
+  plot = final_plot,
+  width = 8.5,   # Adjust this width to make the plot narrower or wider as needed
+  height = 6,
+  dpi = 300
+)
+

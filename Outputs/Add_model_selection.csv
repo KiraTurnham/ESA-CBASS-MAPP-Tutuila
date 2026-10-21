@@ -1,0 +1,4 @@
+"Model","Formula","AIC","BIC","Marginal_R2","Conditional_R2","Site_Variance_Pct","Residual_Variance_Pct","Species_Effect","K3_Cluster_Effect"
+"Species Only","Species + (1 | Site)",100.5,118.9,"0.073 (7.3%)","0.354 (35.4%)","30.3%","69.7%","F(3, 152.8) = 5.23, p = 0.0018","NA"
+"Cluster (K=3) Only","K_3 + (1 | Site)",99.3,114.6,"0.086 (8.6%)","0.388 (38.8%)","33.0%","67.0%","NA","F(2, 121.8) = 7.54, p = 0.0008"
+"Species + K_3 (Full)","Species + K_3 + (1 | Site)",87,111.5,"0.164 (16.4%)","0.507 (50.7%)","41.0%","59.0%","F(3, 152.6) = 6.60, p = 0.0003","F(2, 151.4) = 9.62, p = 0.0001"

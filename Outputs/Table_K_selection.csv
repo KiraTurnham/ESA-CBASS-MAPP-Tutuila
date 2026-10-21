@@ -1,0 +1,15 @@
+"Model_Name","K","Model_Type","AIC","BIC","Marginal_R2","Conditional_R2"
+"k4ms","4","Species + K (Additive)",83.1,110.7,0.183,0.522
+"k3ms","3","Species + K (Additive)",87,111.5,0.164,0.507
+"k5ms","5","Species + K (Additive)",81.3,111.9,0.197,0.527
+"k6ms","6","Species + K (Additive)",83.2,116.8,0.196,0.524
+"k2ms","2","Species + K (Additive)",96.7,118.2,0.103,0.37
+"k7ms","7","Species + K (Additive)",81.9,118.6,0.203,0.533
+"k8ms","8","Species + K (Additive)",83.8,123.6,0.205,0.535
+"k9ms","9","Species + K (Additive)",85.1,127.9,0.209,0.54
+"k10ms","10","Species + K (Additive)",83.5,129.4,0.218,0.503
+"k11ms","11","Species + K (Additive)",85.4,134.4,0.218,0.502
+"k12ms","12","Species + K (Additive)",87.1,139.1,0.219,0.505
+"k13ms","13","Species + K (Additive)",88.1,143.3,0.222,0.509
+"k14ms","14","Species + K (Additive)",90,148.2,0.222,0.51
+"k15ms","15","Species + K (Additive)",87.6,148.9,0.228,0.523
