@@ -1,293 +1,231 @@
-```{r}
-library(pheatmap)
-library(tidyverse)
+---
+title: "Filtered Phenotype Heatmap and Dendrogram"
+output: html_document
+---
+
+```{r setup, message=FALSE, warning=FALSE}
+library(dplyr)
+library(ggnewscale)
+library(ggplot2)
+library(ggtree)
 library(here)
+library(pheatmap)
+library(readr)
+library(stringr)
+library(tibble)
 
-# ======================================================================
-# 1. Load Clean Pipeline Objects (RDS)
-# ======================================================================
+source(here("Scripts", "00_visualization_prep.R"))
 load(here("Outputs", "photophys_preprocessed_data2.RData"))
-# transpose so metrics are rows and samples are columns
-heatmap_matrix <- t(permanova_matrix_filtered)
 
+plot_dir <- here("Plots")
+if (!dir.exists(plot_dir) && !dir.create(plot_dir, recursive = TRUE)) {
+  stop("Could not create the Plots directory: ", plot_dir)
+}
+```
 
-# Define custom species colors
-species_colors <- c(
-  "AABR" = "#046E8F", 
-  "AGLO" = "lightgreen", 
-  "AHYA" = "#D44D5C",
-  "ICRA" = "#462255"  
+```{r sanger-ids}
+sanger_raw <- read_csv(
+  here("Data", "D_trenchii_Sanger_seqIDs.csv"),
+  show_col_types = FALSE
 )
 
-# =========================================================================
-# 2. Extract Dendrogram & Format Matrix
-# =========================================================================
-# Grab hclust object directly from pvclust fit
+confirmed_trenchii_ids <- sanger_raw %>%
+  pull(Name) %>%
+  str_replace("_[A-H]\\d{2}\\.ab1$", "") %>%
+  str_replace("\\.ab1$", "") %>%
+  str_to_lower() %>%
+  str_replace("algo", "aglo") %>%
+  str_replace("^t(\\d+)_?([a-z]+)_?(\\d+)$", "\\1_\\2_\\3") %>%
+  str_to_upper() %>%
+  purrr::keep(~ str_detect(.x, "^\\d+_[A-Z]+_\\d+$")) %>%
+  unique()
+```
+
+```{r heatmap}
 my_hclust <- fit_cbb2$hclust
 original_labels <- my_hclust$labels
 
-# Format physiological matrix with samples as rows
-# heatmap_matrix <- pp_90 %>%
-#   column_to_rownames("sample_file") %>%
-#   dplyr::select(-any_of(c("timepoint", "site", "genotype", "GroupingProperty")))
+heatmap_matrix <- t(permanova_matrix_filtered2)
+sample_match <- match(original_labels, colnames(heatmap_matrix))
+if (anyNA(sample_match)) {
+  stop("Some dendrogram labels are missing from permanova_matrix_filtered2.")
+}
+heatmap_matrix <- heatmap_matrix[, sample_match, drop = FALSE]
 
-# Align matrix rows to match dendrogram leaf order
-heatmap_matrix <- heatmap_matrix[match(original_labels, rownames(heatmap_matrix)), ] %>%
-  as.matrix()
-
-# Transpose (traits in rows, samples in columns), z-score scale, and cap outliers [-3, 3]
-heatmap_matrix_scaled <- t(scale(heatmap_matrix))
-heatmap_matrix_scaled[heatmap_matrix_scaled > 3]  <- 3
-heatmap_matrix_scaled[heatmap_matrix_scaled < -3] <- -3
-
-# Keep column names matched to messy tree labels
-colnames(heatmap_matrix_scaled) <- original_labels
-
-# =========================================================================
-# 3. Filter Metrics & Prepare Row Annotations
-# =========================================================================
-# Filter out raw fluorescence baselines if present
-metric_names <- rownames(heatmap_matrix_scaled)
-keep_metrics <- metric_names[!metric_names %in% c("Fm", "Fo", "fm", "fo")]
-heatmap_matrix_scaled <- heatmap_matrix_scaled[keep_metrics, ]
-
-# Build row annotation categories
-metric_names <- rownames(heatmap_matrix_scaled)
-annotation_row <- data.frame(Metric = case_when(
-  grepl("Quant",   metric_names, ignore.case = TRUE) ~ "Quant (Quantum Yield)",
-  grepl("Sigma",   metric_names, ignore.case = TRUE) ~ "Sigma (Antenna Size)",
-  grepl("Connect", metric_names, ignore.case = TRUE) ~ "Connect (Connectivity)",
-  grepl("Tau1",    metric_names, ignore.case = TRUE) ~ "Tau1 (Transport Kinetics 1)",
-  grepl("Tau2",    metric_names, ignore.case = TRUE) ~ "Tau2 (Transport Kinetics 2)",
-  grepl("NPQ",     metric_names, ignore.case = TRUE) ~ "NPQ (Non-Photochemical Quenching)",
-  grepl("qP",      metric_names, ignore.case = TRUE) ~ "qP (Photochemical Quenching)",
-  grepl("ABQ",     metric_names, ignore.case = TRUE) ~ "ABQ (Absorption)",
-  grepl("qm",      metric_names, ignore.case = TRUE) ~ "qm (Max Quenching)",
-  TRUE                                               ~ "Other Metric"
-))
-rownames(annotation_row) <- metric_names
-
-metric_colors <- c(
-  "Quant (Quantum Yield)"             = "#1F77B4", # Strong Blue
-  "Sigma (Antenna Size)"              = "#FF7F0E", # Vivid Orange
-  "Connect (Connectivity)"            = "#2CA02C", # Leaf Green
-  "Tau1 (Transport Kinetics 1)"       = "#D62728", # Crimson Red
-  "Tau2 (Transport Kinetics 2)"       = "#9467BD", # Purple
-  "NPQ (Non-Photochemical Quenching)" = "#8C564B", # Warm Brown
-  "qP (Photochemical Quenching)"      = "#E377C2", # Pink/Rose
-  "ABQ (Absorption)"                  = "#17BECF", # Cyan
-  "qm (Max Quenching)"                = "#BCBD22", # Olive Yellow
-  "Other Metric"                      = "#7F7F7F"  # Slate Grey
-)
-
-# Package into list for pheatmap
-ann_colors <- list(Metric = metric_colors)
-
-# Sort Matrix and Row Annotations alphabetically by Category
-sorted_order <- order(annotation_row$Metric)
-heatmap_matrix_scaled <- heatmap_matrix_scaled[sorted_order, ]
-annotation_row        <- annotation_row[sorted_order, , drop = FALSE]
-
-# =========================================================================
-# 4. Prepare Column Metadata (ed_90_multiverse)
-# =========================================================================
-# Ensure matching keys exist
-# pp_90_keys <- pp_90 %>%
-#   mutate(
-#     tp_num    = str_match(sample_file, "^t(\\d+)")[,2],
-#     geno_name = toupper(str_match(sample_file, "^t\\d+_([a-zA-Z]+)")[,2]),
-#     rep_num   = str_match(sample_file, "^t\\d+_[a-zA-Z]+(\\d+)")[,2],
-#     GroupingProperty = paste(tp_num, geno_name, rep_num, sep = "_")
-#   ) %>%
-#   dplyr::select(sample_file, GroupingProperty)
-
-# annotation_col <- pp_90_keys %>%
-#   left_join(ed_90_multiverse, by = "GroupingProperty") %>%
-#   distinct(sample_file, .keep_all = TRUE) %>%
-#   rename_with(~ "species", matches("^Species$"))
-
-# Match metadata rows directly to original tree labels
-annotation_col <- annotation_col[match(original_labels, annotation_col$sample_file), ]
-rownames(annotation_col) <- annotation_col$sample_file
-
-#Select annotation tracks for display
-annotation_col <- annotation_col %>%
-  dplyr::select(Species, K_3, Site) %>%
-  mutate(across(c(Species, K_3, Site), as.factor))
-# annotation_col <- annotation_col %>% 
-#   dplyr::select( K_3) %>%
-#   mutate(across(c( K_3), as.factor))
-
-# Color mappings for tracks
-annotation_colors <- list(
-  species = species_colors
-)
-
-# =========================================================================
-# 5. Export Heatmap Plot
-# =========================================================================
-my_palette <- colorRampPalette(c("darkblue", "white", "darkred"))(100)
-my_breaks <- seq(-3, 3, length.out = 101)
-
-jpeg(
-  file   = here("Plots", "Sorted_Grouped_Physiological_Heatmap_pp90.jpg"), 
-  width  = 12, 
-  height = 10, 
-  units  = "in", 
-  res    = 300
-)
-
-pheatmap(
-  heatmap_matrix_scaled,
-  annotation_colors = ann_colors,
-  annotation_col    = annotation_col,
-  annotation_row    = annotation_row,
-  show_colnames     = FALSE,         
-  show_rownames     = FALSE,          
-  cluster_rows      = FALSE,         
-  cluster_cols      = my_hclust,     
-  color             = my_palette,            
-  breaks            = my_breaks,            
-  main              = "Sorted MAPP Fluorescence Metrics vs. Clusters (pp_90)",
-  margins           = c(5, 20)       
-)
-
-dev.off()
-```
-
-
-
-NEW
-```{r}
-library(pheatmap)
-library(dplyr)
-library(tibble)
-library(pvclust)
-library(here)
-
-# =========================================================================
-# 1. LOAD PREPROCESSED DATA & CLUSTERING FIT
-# =========================================================================
-
-# Load preprocessed environment (contains metric_families, ed_aligned)
-load(here("Outputs", "photophys_preprocessed_data.RData"))
-
-# Load pvclust fit (assumes fit_pvclust_99 was computed on permanova_matrix_filtered)
-fit_90 <- readRDS(here("Outputs", "fit_pvclust_99.rds"))
-
-# Define custom species colors
-species_colors <- c(
-  "AABR" = "#046E8F", 
-  "AGLO" = "lightgreen", 
-  "AHYA" = "#D44D5C",
-  "ICRA" = "#462255"  
-)
-
-# =========================================================================
-# 2. EXTRACT DENDROGRAM & BUILD SCALED HEATMAP MATRIX
-# =========================================================================
-
-# Grab hclust tree directly from pvclust fit
-my_hclust <- fit_90$hclust
-original_labels <- my_hclust$labels # SampleIDs (e.g., "11_AABR_1")
-
-# Subset matrix to retain only collinearity-filtered metrics
-# Transpose so metrics are rows and samples are columns
-heatmap_matrix <- t(permanova_matrix_filtered)
-
-# Align columns to match leaf order of the dendrogram
-heatmap_matrix <- heatmap_matrix[, match(original_labels, colnames(heatmap_matrix))]
-
-# Z-score scale across metrics (rows) and cap outliers [-3, 3]
 heatmap_matrix_scaled <- t(scale(t(heatmap_matrix)))
 heatmap_matrix_scaled[is.na(heatmap_matrix_scaled) | is.nan(heatmap_matrix_scaled)] <- 0
-heatmap_matrix_scaled[heatmap_matrix_scaled > 3]  <- 3
+heatmap_matrix_scaled[heatmap_matrix_scaled > 3] <- 3
 heatmap_matrix_scaled[heatmap_matrix_scaled < -3] <- -3
 
-# Drop raw baseline metrics (Fm/Fo) if present
 keep_metrics <- !rownames(heatmap_matrix_scaled) %in% c("Fm", "Fo", "fm", "fo", "F0", "FM")
 heatmap_matrix_scaled <- heatmap_matrix_scaled[keep_metrics, , drop = FALSE]
 
-# =========================================================================
-# 3. PREPARE ROW ANNOTATIONS (METRIC FAMILIES)
-# =========================================================================
+metric_id_column <- if ("Metric_Code" %in% names(metric_families)) {
+  "Metric_Code"
+} else if ("Metric" %in% names(metric_families)) {
+  "Metric"
+} else {
+  stop("metric_families must contain a Metric_Code or Metric column.")
+}
 
-# Filter metric_families table to match active matrix rows
+if (!"Family" %in% names(metric_families)) {
+  stop("metric_families must contain a Family column.")
+}
+
 annotation_row <- metric_families %>%
+  transmute(
+    Metric = .data[[metric_id_column]],
+    Family = as.character(Family)
+  ) %>%
   filter(Metric %in% rownames(heatmap_matrix_scaled)) %>%
-  select(Metric, Family) %>%
+  distinct(Metric, .keep_all = TRUE) %>%
   column_to_rownames("Metric")
 
-# Sort Matrix and Row Annotations alphabetically by Family
+missing_families <- setdiff(rownames(heatmap_matrix_scaled), rownames(annotation_row))
+if (length(missing_families) > 0) {
+  stop(
+    "Metric families are missing for: ",
+    paste(missing_families, collapse = ", ")
+  )
+}
+annotation_row <- annotation_row[rownames(heatmap_matrix_scaled), , drop = FALSE]
+
 sorted_order <- order(annotation_row$Family)
-heatmap_matrix_scaled <- heatmap_matrix_scaled[sorted_order, ]
-annotation_row         <- annotation_row[sorted_order, , drop = FALSE]
+heatmap_matrix_scaled <- heatmap_matrix_scaled[sorted_order, , drop = FALSE]
+annotation_row <- annotation_row[sorted_order, , drop = FALSE]
 
-# Define palette for metric families
-metric_colors <- c(
-  "Quant (Quantum Yield)"             = "#1F77B4", # Strong Blue
-  "Sigma (Antenna Size)"              = "#FF7F0E", # Vivid Orange
-  "Connect (Connectivity)"            = "#2CA02C", # Leaf Green
-  "Connect (Normalized Curves)"       = "#2CA02C", 
-  "Tau1 (Transport Kinetics 1)"       = "#D62728", # Crimson Red
-  "Tau2 (Transport Kinetics 2)"       = "#9467BD", # Purple
-  "NPQ (Non-Photochemical Quenching)" = "#8C564B", # Warm Brown
-  "qP (Photochemical Quenching)"      = "#E377C2", # Pink/Rose
-  "ABQ (Absorption)"                  = "#17BECF", # Cyan
-  "qm (Max Quenching)"                = "#BCBD22", # Olive Yellow
-  "OJIP Kinetics (Derivatives)"       = "#98DF8A", # Light Green
-  "OJIP Ratios & Area"                = "#FFBB78", # Light Orange
-  "Other Metric"                      = "#7F7F7F"  # Slate Grey
+phenotype_map <- c(
+  "Cluster_1" = "Phenotype II",
+  "Cluster_2" = "Phenotype I",
+  "Cluster_3" = "Phenotype III",
+  "1" = "Phenotype II",
+  "2" = "Phenotype I",
+  "3" = "Phenotype III"
 )
 
-# =========================================================================
-# 4. PREPARE COLUMN ANNOTATIONS (SAMPLES)
-# =========================================================================
+phenotype_colors <- c(
+  "Phenotype I" = "violet",
+  "Phenotype II" = "orange",
+  "Phenotype III" = "cyan"
+)
 
-# Match ed_aligned metadata directly to tree labels
-annotation_col <- ed_aligned %>%
-  filter(SampleID_clean %in% colnames(heatmap_matrix_scaled)) %>%
-  arrange(match(SampleID_clean, colnames(heatmap_matrix_scaled))) %>%
-  column_to_rownames("SampleID_clean") %>%
-  select(Species, any_of(c("K_3", "K_4", "K_6", "K_11")), ED50) %>%
-  mutate(across(c(Species, any_of(c("K_3", "K_4", "K_6", "K_11"))), as.factor))
+sanger_colors <- c(
+  "Confirmed" = "#000000",
+  "Unconfirmed" = "#F0F0F0"
+)
 
-# Combine color maps for pheatmap
+sample_metadata <- data.frame(SampleID_clean = original_labels) %>%
+  left_join(meta_filteredK2, by = "SampleID_clean") %>%
+  mutate(
+    Site = case_when(
+      grepl("^Site", as.character(Site)) ~ as.character(Site),
+      !is.na(site_rename_map[as.character(Site)]) ~
+        unname(site_rename_map[as.character(Site)]),
+      TRUE ~ as.character(Site)
+    ),
+    Phenotype = factor(
+      phenotype_map[as.character(K_3)],
+      levels = c("Phenotype I", "Phenotype II", "Phenotype III")
+    ),
+    `D. trenchii (Sanger)` = ifelse(
+      SampleID_clean %in% confirmed_trenchii_ids,
+      "Confirmed",
+      "Unconfirmed"
+    )
+  )
+
+if (anyNA(sample_metadata$Species) || anyNA(sample_metadata$Phenotype)) {
+  stop("Sample metadata could not be matched to every dendrogram label.")
+}
+
+annotation_col <- sample_metadata %>%
+  select(
+    SampleID_clean,
+    Phenotype,
+    `Host Species` = Species,
+    Site,
+    `D. trenchii (Sanger)`
+  ) %>%
+  column_to_rownames("SampleID_clean")
+
 ann_colors <- list(
-  Family  = metric_colors,
-  Species = species_colors
-)
-
-# =========================================================================
-# 5. RENDER & EXPORT HEATMAP
-# =========================================================================
-
-my_palette <- colorRampPalette(c("darkblue", "white", "darkred"))(100)
-my_breaks  <- seq(-3, 3, length.out = 101)
-
-jpeg(
-  file   = here("Plots", "Sorted_Grouped_Physiological_Heatmap_Filtered.jpg"), 
-  width  = 12, 
-  height = 10, 
-  units  = "in", 
-  res    = 300
+  Family = metric_colors,
+  Phenotype = phenotype_colors,
+  `Host Species` = species_colors,
+  Site = site_colors,
+  `D. trenchii (Sanger)` = sanger_colors
 )
 
 pheatmap(
   heatmap_matrix_scaled,
   annotation_colors = ann_colors,
-  annotation_col    = annotation_col,
-  annotation_row    = annotation_row,
-  show_colnames     = FALSE,         
-  show_rownames     = FALSE,         
-  cluster_rows      = FALSE, # Preserves alphabetical Family sorting
-  cluster_cols      = my_hclust, # Direct pvclust tree      
-  color             = my_palette,            
-  breaks            = my_breaks,            
-  main              = "Collinearity-Filtered MAPP Fluorescence Metrics vs. Clusters",
-  margins           = c(5, 20)       
+  annotation_col = annotation_col,
+  annotation_row = annotation_row,
+  show_colnames = FALSE,
+  show_rownames = FALSE,
+  cluster_rows = FALSE,
+  cluster_cols = my_hclust,
+  color = colorRampPalette(c("darkblue", "white", "darkred"))(100),
+  breaks = seq(-3, 3, length.out = 101),
+  main = "MAPP Fluorescence Phenotypes & D. trenchii Presence",
+  filename = here("Plots", "MAPP_Phenotype_Heatmap_Sanger.pdf"),
+  width = 13,
+  height = 10
 )
-
-dev.off()
 ```
 
+```{r ggtree}
+meta_tree <- sample_metadata %>%
+  mutate(
+    Site_Label = Site,
+    Sanger_Dtrenchii = `D. trenchii (Sanger)`
+  )
+
+p_tree <- ggtree(my_hclust) %<+% meta_tree +
+  geom_tippoint(
+    aes(shape = Species, fill = Site_Label),
+    size = 3,
+    stroke = 0.4
+  ) +
+  scale_fill_manual(values = site_colors, name = "Site") +
+  scale_shape_manual(values = species_shapes, name = "Host Species") +
+  theme_tree2() +
+  labs(title = "Photophysiological Phenotypes & D. trenchii Occurrence")
+
+df_sanger <- meta_tree %>%
+  select(SampleID_clean, `D. trenchii (Sanger)` = Sanger_Dtrenchii) %>%
+  column_to_rownames("SampleID_clean")
+
+p1 <- p_tree + new_scale_fill()
+p1 <- gheatmap(
+  p1,
+  df_sanger,
+  offset = 10,
+  width = 0.04,
+  colnames_angle = 90,
+  colnames_offset_y = 0.5
+) +
+  scale_fill_manual(values = sanger_colors, name = "D. trenchii (Sanger)")
+
+df_pheno <- meta_tree %>%
+  select(SampleID_clean, Phenotype) %>%
+  column_to_rownames("SampleID_clean")
+
+p_final <- p1 + new_scale_fill()
+p_final <- gheatmap(
+  p_final,
+  df_pheno,
+  offset = 35,
+  width = 0.04,
+  colnames_angle = 90,
+  colnames_offset_y = 0.5
+) +
+  scale_fill_manual(values = phenotype_colors, name = "Phenotype")
+
+ggsave(
+  here("Plots", "Phenotype_Dendrogram_ggtree.pdf"),
+  plot = p_final,
+  width = 13,
+  height = 10
+)
+```
