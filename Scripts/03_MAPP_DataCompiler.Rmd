@@ -313,7 +313,24 @@ cat("Traits retained after correlation (r =", cor_cutoff, ") filtering:", length
 metric_families <- data.frame(Metric_Code = retained_trait_names) %>%
   left_join(metric_lookup, by = c("Metric_Code" = "Metric.Name")) %>%
   mutate(
-    # Use Root.Metric if available, otherwise fall back to Metric_Code
+    Metric = Metric_Code,
+    Family = case_when(
+      grepl("OJIP Induction-Relaxation Curve metric", Category, ignore.case = TRUE) &
+        grepl("Der", Metric_Code, ignore.case = TRUE) ~ "OJIP Kinetics (Derivatives)",
+      grepl("OJIP Induction-Relaxation Curve metric|Channel Ratio metric", Category, ignore.case = TRUE) ~
+        "OJIP Ratios & Area",
+      grepl("Quant", Metric_Code, ignore.case = TRUE) ~ "Quant (Quantum Yield)",
+      grepl("Sigma", Metric_Code, ignore.case = TRUE) ~ "Sigma (Antenna Size)",
+      grepl("^nCon", Metric_Code, ignore.case = TRUE) ~ "Connect (Normalized Curves)",
+      grepl("^Connect", Metric_Code, ignore.case = TRUE) ~ "Connect (Connectivity)",
+      grepl("Tau1", Metric_Code, ignore.case = TRUE) ~ "Tau1 (Transport Kinetics 1)",
+      grepl("Tau2", Metric_Code, ignore.case = TRUE) ~ "Tau2 (Transport Kinetics 2)",
+      grepl("NPQ", Metric_Code, ignore.case = TRUE) ~ "NPQ (Non-Photochemical Quenching)",
+      grepl("qP|PQpool|ppq|mpq", Metric_Code, ignore.case = TRUE) ~ "qP (Photochemical Quenching)",
+      grepl("ABQ|rABQ", Metric_Code, ignore.case = TRUE) ~ "ABQ (Antenna Bed Quenching)",
+      grepl("qm|rqm", Metric_Code, ignore.case = TRUE) ~ "qm (Max Quenching)",
+      TRUE ~ "Other Metric"
+    ),
     Clean_Label = ifelse(!is.na(Root.Metric) & Root.Metric != "", Root.Metric, Metric_Code)
   )
 
@@ -344,7 +361,7 @@ fit_cbb2 <- pvclust(
   method.hclust = "ward.D2",
   method.dist   = "canberra",
   nboot         = 10000,
-  parallel      = TRUE
+  parallel      = FALSE
 )
 
 #load(here("Outputs", "photophys_preprocessed_data.RData"))
@@ -385,10 +402,10 @@ save(
   longphoto_clean,
   lookup_df,
   ed_aligned,
-  #permanova_matrix,
   permanova_matrix_filtered2,
-  #metric_families,
-  #metric_label_map,
+  metric_families,
+  metric_label_map,
+  metric_lookup,
   meta_filtered2,
   meta_filteredK2,
   fit_cbb2,
@@ -408,9 +425,9 @@ library(here)
 # Ensure meta_filteredK has clean factors and labels
 meta_tree <- meta_filteredK2 %>%
   mutate(
-    # Format K_3 labels to match roman_map ("Cluster I", "Cluster II", "Cluster III")
+    # Format K_3 labels to match roman_map ("Phenotype I", "Phenotype II", "Phenotype III")
     K_3_label = roman_map[as.character(K_3)],
-    K_3_label = factor(K_3_label, levels = c("Cluster I", "Cluster II", "Cluster III")),
+    K_3_label = factor(K_3_label, levels = c("Phenotype I", "Phenotype II", "Phenotype III")),
     Symbiont  = "Durusdinium trenchii",
     Site      = as.factor(Site),
     Species   = as.factor(Species)
@@ -418,9 +435,9 @@ meta_tree <- meta_filteredK2 %>%
 
 # Set Cluster Colors
 cluster_cols <- c(
-  "Cluster I"   = "violet",
-  "Cluster II"  = "orange",
-  "Cluster III" = "cyan"
+  "Phenotype I"   = "violet",
+  "Phenotype II"  = "orange",
+  "Phenotype III" = "cyan"
 )
 symbiont_cols <- c("Durusdinium trenchii" = "#2E8B57")
 # =========================================================================
@@ -447,13 +464,13 @@ p_tree <- ggtree(my_hclust2) %<+% meta_tree +
 # =========================================================================
 # 3. ATTACH COLOR HEATMAP TILES TO LEAVES (MATCHED BY SampleID_clean)
 # ========================================================================
-# Track 1: Cluster (K=3)
+# Track 1: Phenotype (K=3)
 df_k3 <- meta_tree %>% 
-  dplyr::select(SampleID_clean, `Cluster (K=3)` = K_3_label) %>% 
+  dplyr::select(SampleID_clean, `Phenotype (K=3)` = K_3_label) %>%
   column_to_rownames("SampleID_clean")
 
 p_tree1 <- gheatmap(p_tree, df_k3, offset = 50, width = 0.05, colnames_angle = 90, colnames_offset_y = 0.5) +
-  scale_fill_manual(values = cluster_cols, name = "Cluster (K=3)")
+  scale_fill_manual(values = cluster_cols, name = "Phenotype (K=3)")
 
 # Track 2: Symbiont Species
 p_tree2 <- p_tree1 + new_scale_fill()
@@ -486,4 +503,3 @@ p_final <- gheatmap(p_tree4, df_host, offset = 250, width = 0.05, colnames_angle
 #   units    = "in"
 #)
 ```
-

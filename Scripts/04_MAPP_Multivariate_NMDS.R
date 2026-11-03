@@ -50,7 +50,7 @@ meta_filtered2$Site_factor <- as.factor(meta_filtered2$Site)
 # type 1 species and site global PERMANOVA
 permanova_spp_filtered2 <- adonis2(
   permanova_matrix_filtered2 ~ Site + Species,
-  data         = meta_filtered,
+  data         = meta_filtered2,
   method       = "euclidean",
   by = "terms", #site then spp
   permutations = 999
@@ -72,7 +72,7 @@ spp_pairwise <- pairwise.adonis2(
 )
 
 # View the results
-print(spp_pairwise)
+print(site_pairwise)
 
 # Run pairwise PERMANOVA between all site pairs
 site_pairwise <- pairwise.adonis2(
@@ -100,10 +100,13 @@ nmds_filtered <- metaMDS(
 
 cat("\nFiltered nMDS Stress Value:", nmds_filtered$stress, "\n")
 
-# Fit vectors for retained traits
-#ef_filtered2 <- envfit(nmds_filtered, permanova_matrix_filtered2, permutations = 999)
-#saveRDS(ef_filtered2, here("Outputs", "ef_filtered2.rds"))
-ef_filtered2 <- readRDS(here("Outputs", "ef_filtered2.rds"))
+set.seed(123)
+ef_filtered2 <- envfit(
+  nmds_filtered,
+  permanova_matrix_filtered2,
+  permutations = 999
+)
+saveRDS(ef_filtered2, here("Outputs", "ef_filtered2.rds"))
 
 vector_scores2 <- as.data.frame(scores(ef_filtered2, display = "vectors"))
 vector_scores2$Metric <- rownames(vector_scores2)
@@ -147,15 +150,12 @@ top_vectors_clean2 <- top_vectors2 %>%
 top_vectors_merged2 <- top_vectors2 %>%
   left_join(metric_lookup, by = c("Metric" = "Metric.Name"))
 
-# View the result
 print(top_vectors_merged2)
-# 
 write.csv(
   top_vectors_merged2,
   file = here("Outputs", "Table_Top_Vectors2.csv"),
   row.names = FALSE
 )
-# In 02_nmds_envfit.R:
 saveRDS(top_vectors_merged2, file = here("Outputs", "top_vectors2.rds"))
 
 ############################################
@@ -295,8 +295,8 @@ kplot <- ggplot() +
     alpha = 0.5
   ) + 
   # scale_shape_manual(values = species_shapes, limits = species_order, labels = species_labels) +
-  scale_color_manual(values = cluster_colors, limits = target_levels, name = "Photophysiological Cluster") +
-  scale_fill_manual(values = cluster_colors, limits = target_levels, name = "Photophysiological Cluster") +
+  scale_color_manual(values = cluster_colors, limits = target_levels, name = "Photophysiological Phenotype") +
+  scale_fill_manual(values = cluster_colors, limits = target_levels, name = "Photophysiological Phenotype") +
   scale_shape_manual(
     name   = "Species",
     values = species_shapes, 
@@ -326,8 +326,8 @@ kplot <- ggplot() +
     stroke = 4, 
     show.legend = FALSE
   ) +
-  scale_color_manual(values = cluster_colors, limits = target_levels, name = "Photophysiological Cluster") +
-  scale_fill_manual(values = cluster_colors, limits = target_levels, name = "Photophysiological Cluster") +
+  scale_color_manual(values = cluster_colors, limits = target_levels, name = "Photophysiological Phenotype") +
+  scale_fill_manual(values = cluster_colors, limits = target_levels, name = "Photophysiological Phenotype") +
   # Scale layer for envfit vectors
   new_scale_color() +
   geom_segment(

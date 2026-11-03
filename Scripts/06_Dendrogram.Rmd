@@ -8,8 +8,19 @@ library(pheatmap)
 # =========================================================================
 # 1. Load Data & Prepare Dendrogram Object
 # =========================================================================
-load(here("Outputs", "photophys_preprocessed_data.RData"))
+load(here("Outputs", "photophys_preprocessed_data2.RData"))
 source(here("Scripts/00_visualization_prep.R"))
+meta_filteredK <- prepare_site_metadata(meta_filteredK2)
+
+my_hclust <- fit_cbb2$hclust
+heatmap_matrix <- t(permanova_matrix_filtered2)
+sample_match <- match(my_hclust$labels, colnames(heatmap_matrix))
+if (anyNA(sample_match)) {
+  stop("Some dendrogram labels are missing from permanova_matrix_filtered2.")
+}
+heatmap_matrix <- heatmap_matrix[, sample_match, drop = FALSE]
+heatmap_matrix_scaled <- t(scale(t(heatmap_matrix)))
+heatmap_matrix_scaled[is.na(heatmap_matrix_scaled) | is.nan(heatmap_matrix_scaled)] <- 0
 
 library(tidyverse)
 library(dendextend)
@@ -45,7 +56,7 @@ color_sym  <- rep("#000000", nrow(meta_aligned))
 color_k3   <- ann_colors$K_3[as.character(meta_aligned$K_3_label)]
 
 annotation_tracks <- cbind(
-  "Cluster"   = color_k3,
+  "Phenotype" = color_k3,
   "Host"      = color_host,
   "Symbiont"  = color_sym
 )
@@ -102,7 +113,7 @@ legend(
   x = 0.49, y = 0.65,
   legend = names(cluster_colors),
   fill = unname(cluster_colors),
-  title = "Cluster",
+  title = "Phenotype",
   horiz = TRUE, xjust = 0, yjust = 0.5, bty = "o", cex = 0.8
 )
 legend(

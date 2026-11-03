@@ -11,7 +11,8 @@ library(multcomp)
 library(here)
 library(sjPlot)
 source(here("Scripts/00_visualization_prep.R"))
-load(here("Outputs", "photophys_preprocessed_data.RData"))
+load(here("Outputs", "photophys_preprocessed_data2.RData"))
+meta_filteredK <- prepare_site_metadata(meta_filteredK2)
 
 df_modeling <- meta_filteredK %>%
   filter(!is.na(color_slope), !is.na(Site), !is.na(Species)) %>%
@@ -254,19 +255,19 @@ plot_k3msr <- ggplot() +
   # scale_color_manual(values = cluster_colors, limits = roman_map) +
   #scale_fill_manual(values = cluster_colors, limits = roman_map) +
   # Discrete Fill Scale using target_levels for limits
-  scale_color_manual(name = "Cluster", values = cluster_colors, limits = target_levels) +
-  scale_fill_manual(name = "Cluster", values = cluster_colors, limits = target_levels) +
+  scale_color_manual(name = "Phenotype", values = cluster_colors, limits = target_levels) +
+  scale_fill_manual(name = "Phenotype", values = cluster_colors, limits = target_levels) +
   #scale_shape_manual(values = custom_shapes)+
   coord_cartesian(ylim = c(y_min_val, y_max_val)) +
   labs(
-    x = "Photophysiological Cluster (K = 3)",
+    x = "Photophysiological Phenotype (K = 3)",
     y = expression("ED50" ~ "(°C)"),
-    color = "Cluster",
+    color = "Phenotype",
     #shape = "Site"
   ) +
   scale_x_discrete(
     limits = target_levels,
-    labels = c("Cluster I" = "I", "Cluster II" = "II", "Cluster III" = "III", "Cluster IV" = "IV")
+    labels = c("Phenotype I" = "I", "Phenotype II" = "II", "Phenotype III" = "III", "Phenotype IV" = "IV")
   ) +
   #ggrepel::geom_text_repel()+
   theme_classic(base_size = 12, base_family = "sans") +
@@ -315,18 +316,18 @@ saveRDS(plot_k3msr, "Outputs/plot_ed50K_3.rds")
 #   
 #   # Discrete Fill Scale using target_levels for limits
 #   scale_fill_manual(
-#     name = "Cluster",
+#     name = "Phenotype",
 #     values = cluster_colors, 
 #     limits = target_levels
 #   ) +
 #   scale_x_discrete(
 #     limits = target_levels,
-#     labels = c("Cluster I" = "I", "Cluster II" = "II", "Cluster III" = "III")
+#     labels = c("Phenotype I" = "I", "Phenotype II" = "II", "Phenotype III" = "III")
 #   ) +
 #   
 #   coord_cartesian(ylim = c(y_min_val, y_max_val)) +
 #   labs(
-#     x = "Photophysiological Cluster (K = 3)",
+#     x = "Photophysiological Phenotype (K = 3)",
 #     y = expression("ED50" ~ "(°C)")
 #   ) +
 #   theme_classic(base_size = 12, base_family = "sans") +
@@ -361,7 +362,8 @@ library(here)
 
 # Load helper variables (species_colors, cluster_colors, target_levels, roman_map, etc.)
 source(here("Scripts/00_visualization_prep.R"))
-load(here("Outputs", "photophys_preprocessed_data.RData"))
+load(here("Outputs", "photophys_preprocessed_data2.RData"))
+meta_filteredK <- prepare_site_metadata(meta_filteredK2)
 
 # 1. Clean data & ensure factor definitions
 df_modeling <- meta_filteredK %>%
@@ -459,18 +461,18 @@ plot_faceted_dr <- ggplot(data = master_cld_df, aes(x = Cluster_Label, y = emmea
   
   # Manual Aesthetics & Scales
   scale_fill_manual(
-    name   = "Cluster",
+    name   = "Phenotype",
     values = cluster_colors,
     limits = target_levels
   ) +
   scale_x_discrete(
     limits = target_levels,
-    labels = c("Cluster I" = "I", "Cluster II" = "II", "Cluster III" = "III")
+    labels = c("Phenotype I" = "I", "Phenotype II" = "II", "Phenotype III" = "III")
   ) +
   
   # Axes & Labels
   labs(
-    x = "Photophysiological Cluster (K = 3)",
+    x = "Photophysiological Phenotype (K = 3)",
     y = "Estimated Marginal Mean (°C)"
   ) +
   

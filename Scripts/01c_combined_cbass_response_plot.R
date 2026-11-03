@@ -175,7 +175,7 @@ combined_fig2 <- (ed50K_emm / colorK_emm) +
   # Applies full names to x-axis tick labels
   scale_x_discrete(
     limits = target_levels,
-    labels = c("Cluster I" = "I", "Cluster II" = "II", "Cluster III" = "III")
+    labels = c("Phenotype I" = "I", "Phenotype II" = "II", "Phenotype III" = "III")
   ) +
   plot_layout(
     guides = "collect", # Collects shared species/site legends into a single legend
@@ -197,7 +197,7 @@ colorspp_emm <- colorspp_emm +
 colorK_emm <- colorK_emm +
   scale_x_discrete(
     limits = target_levels,
-    labels = c("Cluster I" = "I", "Cluster II" = "II", "Cluster III" = "III")
+    labels = c("Phenotype I" = "I", "Phenotype II" = "II", "Phenotype III" = "III")
   )
 
 #4 
@@ -218,14 +218,14 @@ p_C <- colorspp_emm +
 
 # 2. Format Row 2 (Clusters: D = ED50, E = Color)
 p_D <- ed50K_emm + 
-  scale_x_discrete(limits = target_levels, labels = c("Cluster I" = "I", "Cluster II" = "II", "Cluster III" = "III")) +
+  scale_x_discrete(limits = target_levels, labels = c("Phenotype I" = "I", "Phenotype II" = "II", "Phenotype III" = "III")) +
   theme(
     axis.text.x  = element_text(angle = 0, hjust = 0.5, face = "plain", color = "black"),
     axis.title.x = element_text(face = "bold", size = 11, color = "black")
   )
 
 p_E <- colorK_emm + 
-  scale_x_discrete(limits = target_levels, labels = c("Cluster I" = "I", "Cluster II" = "II", "Cluster III" = "III")) +
+  scale_x_discrete(limits = target_levels, labels = c("Phenotype I" = "I", "Phenotype II" = "II", "Phenotype III" = "III")) +
   theme(
     axis.text.x  = element_text(angle = 0, hjust = 0.5, face = "plain", color = "black"),
     axis.title.x = element_text(face = "bold", size = 11, color = "black")
@@ -255,5 +255,4 @@ four_panel_fig <- wrap_plots(p_B, p_C, p_D, p_E, ncol = 2) +
     axis.line         = element_line(linewidth = 0.6, color = "black"),
     plot.margin       = margin(t = 5, r = 10, b = 10, l = 5, unit = "pt")
   );four_panel_fig
-
 

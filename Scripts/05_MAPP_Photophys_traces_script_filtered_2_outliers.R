@@ -12,7 +12,7 @@ load(here("Outputs", "photophys_preprocessed_data2.RData"))
 top_vectors2 <- readRDS(here("Outputs", "top_vectors2.rds"))
 source(here("Scripts/00_visualization_prep.R"))
 
-# Define dendrogram sample IDs from fit_cbb
+# Define dendrogram sample IDs from the filtered clustering fit.
 dend_ids <- fit_cbb2$hclust$labels %>%
   tolower() %>%
   str_replace("\\.processed\\.csv$", "") %>%
@@ -28,11 +28,11 @@ longphoto_shortie <- longphoto_clean %>%
       str_replace("\\._?\\d{2,3}r$", "") %>%
       str_replace("^t(\\d+)_([a-z]+)(\\d+)$", "\\1_\\2_\\3") %>%
       trimws(),
-    # Create uppercase ID version for joining with meta_filteredK
+    # Create uppercase ID version for joining with metadata.
     SampleID_upper = toupper(SampleID_clean)
   ) %>%
   filter(!str_starts(metric, "m")) %>% 
-  filter(SampleID_clean %in% dend_ids | SampleID_upper %in% meta_filteredK$SampleID_clean)
+  filter(SampleID_clean %in% dend_ids | SampleID_upper %in% meta_filteredK2$SampleID_clean)
 
 # Join metadata (keeps K_3 and Site)
 # Process longphoto and join metadata using roman_map for Clusters
@@ -180,10 +180,10 @@ ggplot(sum_photo_long) +
   )
 
 # 5. Association Tests (Species / Site vs K_3)
-table_spp <- table(meta_filteredK$Species, meta_filteredK$K_3)
+table_spp <- table(meta_filteredK2$Species, meta_filteredK2$K_3)
 print(table_spp)
 chisq.test(table_spp, simulate.p.value = TRUE)
 
-table_site <- table(meta_filteredK$Site, meta_filteredK$K_3)
+table_site <- table(meta_filteredK2$Site, meta_filteredK2$K_3)
 print(table_site)
 chisq.test(table_site, simulate.p.value = TRUE)

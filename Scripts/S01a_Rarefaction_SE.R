@@ -49,6 +49,7 @@ All_ED50.ci95=data.frame(Genotype=names(Allmodels),
                          })))
 
 ROUNDS=max(sapply(X = 4:8,FUN = choose,n=8))
+set.seed(123)
 BIC_df=data.frame(
   Round = 0,
   Genotype=names(Allmodels),
@@ -338,4 +339,3 @@ ggsave(
   height = 6,
   dpi = 300
 )
-

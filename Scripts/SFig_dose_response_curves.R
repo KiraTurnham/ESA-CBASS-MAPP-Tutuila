@@ -13,7 +13,8 @@ library(CBASSED50)
 # 1. LOAD PREPROCESSED DATA & FIT GLOBAL MODELS
 # -----------------------------------------------------------------------------
 source(here("Scripts/00_visualization_prep.R"))
-load(here("Outputs", "photophys_preprocessed_data.RData"))
+load(here("Outputs", "photophys_preprocessed_data2.RData"))
+meta_filteredK <- prepare_site_metadata(meta_filteredK2)
 
 # Define file paths to your raw CBASS/PAM run files
 run_files <- list.files(
@@ -55,7 +56,7 @@ cluster_lookup <- meta_filteredK %>%
   dplyr::select(SampleID_clean, K_3) %>%
   mutate(
     # Align cluster level labels with cluster_colors if needed
-    K_3 = factor(K_3, labels = c("Cluster I", "Cluster II", "Cluster III"))
+    K_3 = factor(K_3, labels = c("Phenotype I", "Phenotype II", "Phenotype III"))
   ) %>%
   distinct()
 
@@ -95,8 +96,8 @@ p_drc_k3 <- ggplot(
 ) +
   geom_line(aes(group = SampleID_clean), alpha = 0.30, linewidth = 0.5) +
   geom_smooth(method = "loess", se = TRUE, alpha = 0.20, linewidth = 1.2) +
-  scale_color_manual(name = "Cluster", values = cluster_colors) +
-  scale_fill_manual(name = "Cluster", values = cluster_colors) +
+  scale_color_manual(name = "Phenotype", values = cluster_colors) +
+  scale_fill_manual(name = "Phenotype", values = cluster_colors) +
   labs(
     x = "Temperature (°C)",
     y = expression("Photophysiological Yield (" * F[v] / F[m] * ")")
@@ -142,7 +143,7 @@ eds_spp_summary <- meta_filteredK %>%
 # Calculate ED metric means by K_3 Cluster
 eds_k3_summary <- meta_filteredK %>%
   filter(!is.na(K_3)) %>%
-  mutate(K_3 = factor(K_3, labels = c("Cluster I", "Cluster II", "Cluster III"))) %>%
+  mutate(K_3 = factor(K_3, labels = c("Phenotype I", "Phenotype II", "Phenotype III"))) %>%
   group_by(K_3) %>%
   summarise(
     Mean_ED5  = mean(ED5, na.rm = TRUE),
@@ -275,9 +276,9 @@ df_raw_points <- df_combined %>%
   define_grouping_property(grouping_properties) %>%
   mutate(SampleID_clean = paste(GroupingProperty, Genotype, sep = "_")) %>%
   left_join(
-    meta_filteredK %>% 
-      dplyr::select(SampleID_clean, K_3) %>% 
-      mutate(K_3 = factor(K_3, labels = c("Cluster I", "Cluster II", "Cluster III"))) %>% 
+    meta_filteredK %>%
+      dplyr::select(SampleID_clean, K_3) %>%
+      mutate(K_3 = factor(K_3, labels = c("Phenotype I", "Phenotype II", "Phenotype III"))) %>%
       distinct(),
     by = "SampleID_clean"
   ) %>%
@@ -665,7 +666,8 @@ library(CBASSED50)
 # 1. LOAD PREPROCESSED DATA & FIT GLOBAL MODELS
 # -----------------------------------------------------------------------------
 source(here("Scripts/00_visualization_prep.R"))
-load(here("Outputs", "photophys_preprocessed_data.RData"))
+load(here("Outputs", "photophys_preprocessed_data2.RData"))
+meta_filteredK <- prepare_site_metadata(meta_filteredK2)
 
 # Define file paths to raw CBASS/PAM run files
 run_files <- list.files(
@@ -707,7 +709,7 @@ df_combined_grouped <- define_grouping_property(df_combined, grouping_properties
 cluster_lookup <- meta_filteredK %>%
   dplyr::select(SampleID_clean, K_3) %>%
   mutate(
-    K_3 = factor(K_3, labels = c("Cluster I", "Cluster II", "Cluster III"))
+    K_3 = factor(K_3, labels = c("Phenotype I", "Phenotype II", "Phenotype III"))
   ) %>%
   distinct()
 
@@ -742,7 +744,7 @@ eds_spp_summary <- meta_filteredK %>%
 eds_k3_summary <- meta_filteredK %>%
   filter(!is.na(K_3)) %>%
   mutate(
-    # Map factor levels explicitly to target_levels ("Cluster I", "Cluster II", "Cluster III")
+    # Map factor levels explicitly to target_levels ("Phenotype I", "Phenotype II", "Phenotype III")
     K_3 = roman_map[as.character(K_3)],
     K_3 = factor(K_3, levels = target_levels)
   ) %>%
@@ -946,8 +948,8 @@ p_k3_overlay <- ggplot(drc_k3_avg, aes(x = Temperature, y = Mean_PAM, color = K_
   geom_vline(data = eds_k3_summary, aes(xintercept = Mean_ED95, color = K_3), linetype = "dotdash", alpha = 0.65, linewidth = 0.7) +
   
   # Manual Aesthetics & Scales
-  scale_color_manual(name = "Cluster", values = cluster_colors) +
-  scale_fill_manual(name = "Cluster", values = cluster_colors) +
+  scale_color_manual(name = "Phenotype", values = cluster_colors) +
+  scale_fill_manual(name = "Phenotype", values = cluster_colors) +
   scale_x_continuous(limits = c(29, 41), breaks = c(30, 32, 34, 36, 38, 40)) +
   scale_y_continuous(limits = c(0, 0.70), breaks = seq(0, 0.6, by = 0.2)) +
   labs(
@@ -1061,8 +1063,8 @@ p_k3_overlay_bins <- ggplot() +
   geom_vline(data = eds_k3_summary, aes(xintercept = Mean_ED95, color = K_3), linetype = "dotdash", alpha = 0.6, linewidth = 0.6) +
   
   # Scales & Formatting
-  scale_color_manual(name = "Cluster", values = cluster_colors) +
-  scale_fill_manual(name = "Cluster", values = cluster_colors) +
+  scale_color_manual(name = "Phenotype", values = cluster_colors) +
+  scale_fill_manual(name = "Phenotype", values = cluster_colors) +
   scale_x_continuous(limits = c(29, 41), breaks = c(30, 32, 34, 36, 38, 40)) +
   scale_y_continuous(limits = c(0, 0.72), breaks = seq(0, 0.6, by = 0.2)) +
   labs(x = "Temperature (°C)", y = expression("Photophysiological Yield (" * F[v] / F[m] * ")")) +

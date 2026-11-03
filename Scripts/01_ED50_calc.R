@@ -8,6 +8,7 @@ library(readxl)
 library(rstudioapi)
 library(RColorBrewer)
 library(CBASSED50) #Voolstra R package
+library(here)
 
 mandatory_columns()
 rm(list = ls())
@@ -29,7 +30,7 @@ input_data_path <- selectFile(
 # Read data based on file format
 cbass_dataset <- read_data(input_data_path)
 cbass_dataset <-  cbass_dataset %>% select(-PAM1, -PAM2, -comments) #remove columns that contain blank rows
-View(cbass_dataset)
+if (interactive()) View(cbass_dataset)
 
 # To specify the prefix for output files
 output_prefix <- tools::file_path_sans_ext(input_data_path)
@@ -53,7 +54,7 @@ models <- fit_drms(cbass_dataset, grouping_properties, drm_formula, is_curveid =
 
 #get-eds
 eds <- get_all_eds_by_grouping_property(models)
-View(eds)
+if (interactive()) View(eds)
 eds$GroupingProperty[eds$GroupingProperty == "1_AHYA"] <- "1_AHYA_1" #manual fix for when there is only one replicate of a species in the run
 
 cbass_dataset <- define_grouping_property(cbass_dataset, grouping_properties) %>%
@@ -65,11 +66,11 @@ eds_df <-
   distinct()
 
 head(eds_df)
-# write.csv(
-#   eds_df,
-#   paste0(output_prefix, "_EDsdf.csv"),
-#   row.names = FALSE
-# )
+write.csv(
+  eds_df,
+  paste0(output_prefix, "_EDsdf.csv"),
+  row.names = FALSE
+)
 
 
 ####Plotting-------------------------

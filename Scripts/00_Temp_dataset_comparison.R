@@ -93,6 +93,7 @@ process_cbass_dataset <- function(dat, temps, dataset_name){
 }
 
 #run fuction across all ramp designs
+set.seed(123)
 eds_all <- bind_rows(lapply(names(temp_sets), function(name){
     process_cbass_dataset(dat,
                           temps = temp_sets[[name]],
@@ -103,11 +104,21 @@ eds_all <- bind_rows(lapply(names(temp_sets), function(name){
 #save combined dataset
 write.csv(eds_all, here ("Data", "EDsdf_all_ramps.csv"), row.names = FALSE)
 
+# Refresh the ED50 input used by the MAPP data compiler from the all-ramp fit.
+ed_all <- eds_all %>%
+  filter(Dataset == "All") %>%
+  mutate(
+    SampleID_clean = toupper(paste(Site, Species, Genotype, sep = "_"))
+  ) %>%
+  select(ED5, ED50, ED95, SampleID_clean, Site, Species)
+
+write.csv(ed_all, here("Data", "EDsdf-all.csv"), row.names = FALSE, quote = FALSE)
+
 
 #run model comparing ED50 estimate among temp ramp designs------------------------------
 
 #explore for outliers (getting those odd values under the "classic" temp ramp)
-View(eds_all)
+if (interactive()) View(eds_all)
 eds_all <- eds_all%>% mutate(across(where(is.character), as.factor))
 #To ensure results were not influenced by unequal species representation, analyses were repeated for the two most commonly represented species (AGLO and ICRA).
 eds_two <- eds_all %>% filter(Species %in% c("AGLO", "ICRA"), ED50 >= tmin, ED50 <=tmax)
@@ -145,7 +156,7 @@ g1 <- ggplot(eds_clean, aes(x = Dataset, y = ED50, fill = Species)) +
   ) +
   theme(legend.position = "none")
 
-g1
+if (interactive()) print(g1)
 ggsave(filename = here ("Plots", "ED50 Comparisons Across Temp Ramps.jpeg"), plot = g1, 
        width = 10, height = 6,  dpi = 300 )  
 
@@ -189,6 +200,6 @@ g2 <- ggplot(dat_shared, aes(x = Dataset, y = ED50, fill = Species)) +
   ) +
   theme(legend.position = "none")
 
-g2
+if (interactive()) print(g2)
 ggsave(filename = here ("Plots", "ED50 Comparisons Across Temp Ramps--paired sites.jpeg"), plot = g2, 
   width = 10, height = 6, dpi = 300)

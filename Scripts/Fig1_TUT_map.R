@@ -8,6 +8,8 @@ library(scatterpie)
 
 # 1. Source prep script and load shapefile
 source(here("Scripts", "00_visualization_prep.R"))
+load(here("Outputs", "photophys_preprocessed_data2.RData"))
+meta_filteredK <- prepare_site_metadata(meta_filteredK2)
 tutuila_shape <- st_read(here("Data", "Tut_shapefiles", "TUT.shp"))
 
 # Ensure shapefile uses WGS84 (lat/lon in degrees)

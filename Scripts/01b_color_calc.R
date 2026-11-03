@@ -91,7 +91,7 @@ fvfm_and_color <- fvfm_and_color %>%
     Rel_Temperature=Temperature-29
   )
 
-write_csv(fvfm_and_color, "Outputs/fvfm_color_df.csv")
+write_csv(fvfm_and_color, here("Outputs", "fvfm_color_df.csv"))
 
 uG=unique(fvfm_and_color$SampleID_clean)
 lmresults=NULL
@@ -106,12 +106,12 @@ for(ig in 1:length(uG)){
   lmresults=rbind(lmresults,thismodresults)
   print(ig)
 }
-write_csv(lmresults, "Outputs/color_slope.csv")
+write_csv(lmresults, here("Outputs", "color_slope.csv"))
 
 lmresults <- lmresults %>%
   mutate(
     Species = factor(Species, levels = species_order),
-    (Site = factor(as.character(Site), levels = c("1", "3", "4", "5", "7", "9", "10", "11")))
+    Site = factor(unname(site_rename_map[as.character(Site)]), levels = all_sites)
   )
 
 # Fit mixed model and calculate emmeans
@@ -239,33 +239,31 @@ color_emm <- ggplot(lmresults, aes(x = Species, y = slope)) +
   )+
   scale_x_discrete(limits = species_order, labels = species_labels) 
 
-color_emm
+if (interactive()) print(color_emm)
 
-saveRDS(color_emm, "Outputs/plot_color.rds")
+saveRDS(color_emm, here("Outputs", "plot_color.rds"))
 
-# 1. Calculate overall R2 (Predicted vs Actual Color_mean)
-r2_overall <- cor(pred_lines$Color_mean, pred_lines$pred_color, use = "complete.obs")^2
-
-# 2. Calculate per-species R2 values for the facets
-r2_df <- pred_lines %>%
-  filter(!is.na(Color_mean) & !is.na(pred_color)) %>%
-  group_by(Species) %>%
-  summarize(
-    r2 = cor(Color_mean, pred_color)^2,
-    r2_label = sprintf("R² = %.2f", r2)
-  ) %>%
-  mutate(
-    # Inf = Right edge, -Inf = Bottom edge
-    Rel_Temperature = Inf,
-    Color_mean = -Inf
-  )
-
-# 1. Generate predicted regression lines for each sample using lmresults
+# Generate predicted regression lines for each sample using lmresults.
 pred_lines <- fvfm_and_color %>%
   left_join(lmresults %>% dplyr::select(SampleID, int, slope), by = c("SampleID_clean" = "SampleID")) %>%
   mutate(
     pred_color = int + slope * Rel_Temperature,
     Species = factor(Species, levels = species_order)
+  )
+
+# Calculate overall and per-species R-squared values for the fitted lines.
+r2_overall <- cor(pred_lines$Color_mean, pred_lines$pred_color, use = "complete.obs")^2
+r2_df <- pred_lines %>%
+  filter(!is.na(Color_mean) & !is.na(pred_color)) %>%
+  group_by(Species) %>%
+  summarize(
+    r2 = cor(Color_mean, pred_color)^2,
+    r2_label = sprintf("R² = %.2f", r2),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    Rel_Temperature = Inf,
+    Color_mean = -Inf
   )
 
 # 2. Extract species-level average slopes and intercepts from emmeans
@@ -306,7 +304,7 @@ g_slopes <- ggplot() +
     legend.position = "right"
   )
 
-g_slopes
+if (interactive()) print(g_slopes)
 
 # 1. Generate predictions across temperature range with SE/CI from emmeans
 temp_seq <- seq(min(fvfm_and_color$Rel_Temperature, na.rm = TRUE),
@@ -377,17 +375,17 @@ g_slopes_ribbon <- ggplot(pred_lines, aes(x = Rel_Temperature, y = Color_mean, c
     axis.text = element_text(color = "black")
   )
 
-g_slopes_ribbon
+if (interactive()) print(g_slopes_ribbon)
 
 ggsave(
-  filename = "FigS3.Slopes_ribbon_grid.png",
+  filename = here("Plots", "FigS3.Slopes_ribbon_grid.png"),
   plot = g_slopes_ribbon,
   width = 3400,          # Pixel width (adjust as needed)
   height = 1800,         # Pixel height
   units = "px",
   dpi = 300              # High resolution for publication
 )
-saveRDS(g_slopes_ribbon, "Outputs/color_slopes_ribbon.rds")
+saveRDS(g_slopes_ribbon, here("Outputs", "color_slopes_ribbon.rds"))
 ###########################################################
 #just plotting the samples is used for the supplemental frag tracking:
 library(tidyverse)
@@ -446,4 +444,4 @@ g_4_corals <- ggplot(filtered_pred_lines, aes(x = Rel_Temperature, y = Color_mea
     axis.text = element_text(color = "black")
   )
 
-g_4_corals
+if (interactive()) print(g_4_corals)

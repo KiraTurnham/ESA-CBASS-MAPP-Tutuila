@@ -2,29 +2,10 @@ library(ggplot2)
 library(here)
 library(dplyr)
 library(sf)
-library(readr)
 
 site_title    <- "Site"
 species_title <- "Species"
 
-# 1. Load data
-load(here("Outputs", "photophys_preprocessed_data.RData"))
-
-# 2. Read new site density metadata sheet and extract coordinates per original Site
-geo_metadata <- read.csv(here("Data", "fixed_sites_sdmtmb_predicted_density_2025.csv")) %>%
-  mutate(
-    # Extract numeric site code if values look like "ESA-TUT-011" -> "11"
-    Site_orig = gsub(".*-", "", as.character(Site)),
-    Site_orig = as.character(as.numeric(Site_orig)) # strips leading zeros
-  ) %>%
-  group_by(Site_orig) %>%
-  summarise(
-    Latitude  = first(Lat),
-    Longitude = first(Long),
-    .groups   = "drop"
-  )
-
-# 3. Explicitly define original site mapping (Change right-side values if needed)
 site_rename_map <- c(
   "1"  = "Site 6",
   "3"  = "Site 1",
@@ -36,25 +17,35 @@ site_rename_map <- c(
   "11" = "Site 5"
 )
 
-# 4. Process meta_filteredK, apply new site names, and attach coordinates
-meta_filteredK <- meta_filteredK %>%
-  mutate(
-    Site_orig = as.character(Site),
-    Site      = case_match(
-      Site_orig,
-      "1"  ~ "Site 6",
-      "3"  ~ "Site 1",
-      "4"  ~ "Site 3",
-      "5"  ~ "Site 2",
-      "7"  ~ "Site 8",
-      "9"  ~ "Site 4",
-      "10" ~ "Site 7",
-      "11" ~ "Site 5",
-      .default = Site_orig
+prepare_site_metadata <- function(metadata) {
+  if (all(c("Latitude", "Longitude") %in% names(metadata))) {
+    return(metadata)
+  }
+
+  geo_metadata <- read.csv(here("Data", "fixed_sites_sdmtmb_predicted_density_2025.csv")) %>%
+    mutate(
+      Site_orig = gsub(".*-", "", as.character(Site)),
+      Site_orig = as.character(as.numeric(Site_orig))
+    ) %>%
+    group_by(Site_orig) %>%
+    summarise(
+      Latitude = first(Lat),
+      Longitude = first(Long),
+      .groups = "drop"
     )
-  ) %>%
-  left_join(geo_metadata, by = "Site_orig") %>%
-  dplyr::select(-Site_orig)
+
+  metadata %>%
+    mutate(
+      Site_orig = as.character(Site),
+      Site = ifelse(
+        !is.na(site_rename_map[Site_orig]),
+        unname(site_rename_map[Site_orig]),
+        Site_orig
+      )
+    ) %>%
+    left_join(geo_metadata, by = "Site_orig") %>%
+    dplyr::select(-Site_orig)
+}
 
 theme_coral_pub <- function(base_size = 12) {
   theme_classic(base_size = base_size, base_family = "sans") +
@@ -104,16 +95,16 @@ K_names <- c("2" = "Group I", "1" = "Group II", "3" = "Group III")
 K_names_order <- c("Group I", "Group II", "Group III")
 
 roman_map <- c(
-  "Cluster_1" = "Cluster II", "Cluster_2" = "Cluster I", "Cluster_3" = "Cluster III",
-  "1" = "Cluster II", "2" = "Cluster I", "3" = "Cluster III"
+  "Cluster_1" = "Phenotype II", "Cluster_2" = "Phenotype I", "Cluster_3" = "Phenotype III",
+  "1" = "Phenotype II", "2" = "Phenotype I", "3" = "Phenotype III"
 )
 
-target_levels <- c("Cluster I", "Cluster II", "Cluster III")
+target_levels <- c("Phenotype I", "Phenotype II", "Phenotype III")
 
 cluster_colors <- c(
-  "Cluster I"   = "violet",
-  "Cluster II"  = "orange",
-  "Cluster III" = "cyan"
+  "Phenotype I"   = "violet",
+  "Phenotype II"  = "orange",
+  "Phenotype III" = "cyan"
 )
 
 # Metric & Annotation Palettes
@@ -159,4 +150,3 @@ theme_coral_pub <- function(base_size = 12) {
       plot.margin     = ggplot2::margin(t = 8, r = 8, b = 5, l = 8, unit = "pt") # Namespaced fix
     )
 }
-

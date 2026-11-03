@@ -18,35 +18,45 @@ The analysis estimates thermal-performance metrics and color-loss slopes, compil
 - [Scripts/](Scripts/) — R scripts and R Markdown analyses for thermal-response calculations, data compilation, multivariate analyses, clustering, model comparisons, and figures.
 - [Outputs/](Outputs/) — processed datasets, model results, and analysis products used by downstream scripts.
 
-Some scripts write figures to a `Plots/` directory. Create that directory if it is not present before running a script that saves plots there.
+Analysis scripts write intermediate data to `Data/` and `Outputs/`, and figures to `Plots/`. These directories are included in the repository.
 
 ## Prerequisites
 
-- R (the repository does not currently specify a tested R version).
-- RStudio is recommended; some scripts use RStudio file-selection and viewing functions.
-- R packages used across the analyses include `tidyverse`, `here`, `vegan`, `CBASSED50`, `lme4`, `lmerTest`, `emmeans`, `pvclust`, `pheatmap`, `caret`, and `pairwiseAdonis`, among others. Individual scripts load their own dependencies.
-
-There is no package lockfile or centralized dependency-installation script in this repository. Install the required packages in your R environment before running each analysis. `CBASSED50` is an external package and may require installation from its maintained source rather than the standard CRAN repository; follow that package's installation instructions.
+- R and Pandoc (for knitting R Markdown documents).
+- Open the repository root as the RStudio project/working directory. Scripts use `here()` for project-relative paths.
+- Install the packages loaded by the script you plan to run. The workflows use packages including `tidyverse`, `here`, `vegan`, `CBASSED50`, `lme4`, `lmerTest`, `emmeans`, `pvclust`, `pheatmap`, `caret`, `pairwiseAdonis`, `ggtree`, and `ggnewscale`.
+- `CBASSED50` and `ggtree` may require installation from their project/Bioconductor sources. There is not yet a package lockfile, so package versions are not pinned.
 
 ## Getting started
 
-1. Clone or download this repository and open the repository root as your RStudio project or working directory. Scripts use `here()` to locate files relative to the project root.
-2. Install the R packages required by the script(s) you intend to run.
-3. Run the analyses in dependency order, checking each script's input paths and comments before execution. A typical workflow is:
-	- [Scripts/01_ED50_calc.R](Scripts/01_ED50_calc.R) — calculate CBASS ED values from a selected run file. This script opens a file chooser and is intended for interactive use.
-	- [Scripts/01b_color_calc.R](Scripts/01b_color_calc.R) — combine color-score and PAM data and estimate color-slope responses.
-	- [Scripts/03_DataCompiler_Outliers.Rmd](Scripts/03_DataCompiler_Outliers.Rmd) — compile MAPP phenotype data, apply the documented filtering and preprocessing, and assemble analysis metadata.
-	- [Scripts/04_MAPP_Multivariate_filtered_2_outliers.R](Scripts/04_MAPP_Multivariate_filtered_2_outliers.R) — run multivariate analyses, including PERMANOVA, dispersion tests, nMDS, and trait-vector summaries.
-	- [Scripts/05_model_comparisons.R](Scripts/05_model_comparisons.R) — compare species- and cluster-based mixed-effects models for thermal and other response metrics.
-	- Other scripts in [Scripts/](Scripts/) generate figures, evaluate alternative CBASS temperature ramps, or perform supplementary analyses.
+1. Run [Scripts/00_Temp_dataset_comparison.R](Scripts/00_Temp_dataset_comparison.R) to fit ED values from the eight named raw CBASS/PAM runs. It writes `Data/EDsdf_all_ramps.csv` and refreshes `Data/EDsdf-all.csv`, the ED table used by the MAPP compiler.
+2. Run [Scripts/01b_color_calc.R](Scripts/01b_color_calc.R) to join color-score and PAM data and write `Outputs/color_slope.csv`.
+3. Knit [Scripts/03_MAPP_DataCompiler.Rmd](Scripts/03_MAPP_DataCompiler.Rmd). It requires the ED and color-slope files from steps 1–2, collection/MAPP metadata, the metric lookup table, and processed CSVs under `Data/phenotyping_data/normalized/`. It writes `Outputs/photophys_preprocessed_data2.RData`, including the filtered metric matrix, metadata, clusters, clustering fit, and metric-family annotations.
+4. Run [Scripts/04_MAPP_Multivariate_NMDS.R](Scripts/04_MAPP_Multivariate_NMDS.R) to run dispersion/PERMANOVA tests and nMDS/envfit. It creates `Outputs/ef_filtered2.rds`, `Outputs/top_vectors2.rds`, and the top-vector table.
+5. Run [Scripts/05_MAPP_Photophys_traces_script_filtered_2_outliers.R](Scripts/05_MAPP_Photophys_traces_script_filtered_2_outliers.R), [Scripts/PhenotypeHeatmap_FILTERED.Rmd](Scripts/PhenotypeHeatmap_FILTERED.Rmd), or [Scripts/06_Dendrogram.Rmd](Scripts/06_Dendrogram.Rmd) for downstream MAPP plots. The trace script needs the top-vector file from step 4.
 
-Several downstream scripts load precomputed files from [Outputs/](Outputs/). Run the relevant upstream analyses first, or confirm that the expected input files are already present. File names and filtering choices are encoded in individual scripts and may need to be updated when using a different dataset or study iteration.
+### CBASS response figures
+
+- [Scripts/02_Taxa_differences_in_EDs.R](Scripts/02_Taxa_differences_in_EDs.R) uses `Data/EDsdf_all_ramps.csv` from step 1 and writes `Outputs/plot_ed50.rds`.
+- [Scripts/06a_Plot_ED_emmeans.R](Scripts/06a_Plot_ED_emmeans.R) and [Scripts/06b_Plot_Color_emmeans.R](Scripts/06b_Plot_Color_emmeans.R) use the compiled data from step 3. They create the ED50 and color-slope cluster/species plot objects.
+- After those scripts and step 2, run [Scripts/01c_combined_cbass_response_plot.R](Scripts/01c_combined_cbass_response_plot.R) to combine the saved plots.
+
+### Other entry points
+
+- [Scripts/01_ED50_calc.R](Scripts/01_ED50_calc.R) is an interactive per-run tool: select a raw CBASS file, and it writes a run-specific ED table and summary beside that file. It is not required for the all-ramp workflow above.
+- [Scripts/06_model_comparisons.R](Scripts/06_model_comparisons.R) runs additional model comparisons and produces supplementary tables/figures from the compiled data.
+- [Scripts/Fig1_TUT_map.R](Scripts/Fig1_TUT_map.R), [Scripts/S01a_Rarefaction_SE.R](Scripts/S01a_Rarefaction_SE.R), and [Scripts/SFig_dose_response_curves.R](Scripts/SFig_dose_response_curves.R) are supplementary analyses; see their inputs and outputs in the scripts.
+- Script names with `2` or `filtered` identify the selected MAPP data/filtering iteration. They are retained to avoid breaking saved output references.
+
+`Scripts/00_visualization_prep.R` defines shared palettes and plotting helpers only; it does not load analysis data. Scripts load their input `.RData` explicitly. `prepare_site_metadata()` applies the site labels and coordinates where needed.
 
 ## Reproducibility notes
 
-- Results depend on the input data, filtering rules, model settings, and package versions. Check script comments and recorded output files when reproducing a particular analysis.
-- Some analyses use random procedures; where set, the random seed is specified in the script.
-- The scripts are research analyses rather than a single automated pipeline; they may require interactive steps and manual review.
+- The main script order above follows actual file and object dependencies; standalone supplementary scripts are not one linear pipeline.
+- Seeds are set for randomized analyses and clustering is run sequentially in the MAPP compiler. Model and permutation settings remain in the scripts.
+- `Data/EDsdf-all.csv` is regenerated from the all-ramp fit rather than treated as a manually maintained prerequisite.
+- `Outputs/photophys_preprocessed_data.RData` is a legacy saved snapshot; current downstream scripts use `photophys_preprocessed_data2.RData` from the compiler.
+- Use `sessionInfo()` to record the R/package versions used for a run. Cross-machine reproducibility is limited until a package lockfile is added.
 - Do not overwrite or redistribute source data without confirming the applicable data-use terms.
 
 ## Resources

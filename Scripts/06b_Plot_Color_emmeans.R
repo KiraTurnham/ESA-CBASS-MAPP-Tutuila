@@ -11,7 +11,8 @@ library(multcomp)
 library(here)
 library(sjPlot)
 source(here("Scripts/00_visualization_prep.R"))
-load(here("Outputs", "photophys_preprocessed_data.RData"))
+load(here("Outputs", "photophys_preprocessed_data2.RData"))
+meta_filteredK <- prepare_site_metadata(meta_filteredK2)
 
 df_modeling <- meta_filteredK %>%
   filter(!is.na(color_slope), !is.na(Site), !is.na(Species)) %>%
@@ -256,7 +257,7 @@ saveRDS(plot_sppslope, "Outputs/plot_colorK_spp.rds")
 #   scale_shape_manual(values = custom_shapes)+
 #   coord_cartesian(ylim = c(y_min_val, y_max_val)) +
 #   labs(
-#     x = "Photophysiological Cluster (K = 3)",
+#     x = "Photophysiological Phenotype (K = 3)",
 #     y = expression("Color slope"),
 #     color = "Species",
 #     #shape = "Site"
@@ -305,18 +306,18 @@ saveRDS(plot_sppslope, "Outputs/plot_colorK_spp.rds")
 #   
 #   # Discrete Fill Scale using target_levels for limits
 #   scale_fill_manual(
-#     name = "Cluster",
+#     name = "Phenotype",
 #     values = cluster_colors, 
 #     limits = target_levels
 #   ) +
 #   scale_x_discrete(
 #     limits = target_levels,
-#     labels = c("Cluster I" = "I", "Cluster II" = "II", "Cluster III" = "III")
+#     labels = c("Phenotype I" = "I", "Phenotype II" = "II", "Phenotype III" = "III")
 #   ) +
 #   
 #   coord_cartesian(ylim = c(y_min_val, y_max_val)) +
 #   labs(
-#     x = "Photophysiological Cluster (K = 3)",
+#     x = "Photophysiological Phenotype (K = 3)",
 #     y = expression("Color slope")
 #   ) +
 #   theme_classic(base_size = 12, base_family = "sans") +
@@ -335,3 +336,34 @@ saveRDS(plot_sppslope, "Outputs/plot_colorK_spp.rds")
 # 
 # print(plot_k3msrcolor)
 # saveRDS(plot_k3msrcolor, "Outputs/plot_colorK_3.rds")
+
+cluster_data <- df_modeling %>%
+  mutate(
+    Cluster_Label = factor(roman_map[as.character(K_3)], levels = target_levels)
+  ) %>%
+  filter(!is.na(Cluster_Label))
+
+cluster_model <- lmer(YY ~ Cluster_Label + (1 | Site), data = cluster_data, REML = TRUE)
+cluster_emmeans <- emmeans(cluster_model, ~ Cluster_Label)
+cluster_cld <- multcomp::cld(cluster_emmeans, adjust = "tukey", Letters = letters) %>%
+  as.data.frame() %>%
+  mutate(.group = trimws(.group))
+
+plot_colorK_3 <- ggplot(cluster_cld, aes(x = Cluster_Label, y = emmean)) +
+  geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL), width = 0.15, linewidth = 0.8) +
+  geom_point(aes(fill = Cluster_Label), shape = 21, size = 5, color = "black") +
+  geom_text(aes(y = upper.CL + 0.1, label = .group), vjust = 0, size = 5) +
+  scale_x_discrete(
+    limits = target_levels,
+    labels = c("Phenotype I" = "I", "Phenotype II" = "II", "Phenotype III" = "III")
+  ) +
+  scale_fill_manual(values = cluster_colors, limits = target_levels, name = "Phenotype") +
+  labs(x = "Photophysiological Phenotype (K = 3)", y = "Color slope") +
+  theme_classic(base_size = 12, base_family = "sans") +
+  theme(
+    axis.title = element_text(face = "bold"),
+    legend.position = "right"
+  )
+
+print(plot_colorK_3)
+saveRDS(plot_colorK_3, here("Outputs", "plot_colorK_3.rds"))
