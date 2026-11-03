@@ -143,7 +143,6 @@ annotation_col <- sample_metadata %>%
     SampleID_clean,
     Phenotype,
     `Host Species` = Species,
-    Site,
     `D. trenchii (Sanger)`
   ) %>%
   column_to_rownames("SampleID_clean")
@@ -152,7 +151,6 @@ ann_colors <- list(
   Family = metric_colors,
   Phenotype = phenotype_colors,
   `Host Species` = species_colors,
-  Site = site_colors,
   `D. trenchii (Sanger)` = sanger_colors
 )
 
@@ -183,24 +181,39 @@ meta_tree <- sample_metadata %>%
 
 p_tree <- ggtree(my_hclust) %<+% meta_tree +
   geom_tippoint(
-    aes(shape = Species, fill = Site_Label),
+    aes(shape = Species, fill = Species),
     size = 3,
     stroke = 0.4
   ) +
-  scale_fill_manual(values = site_colors, name = "Site") +
+  scale_fill_manual(values = species_colors, name = "Host Species") +
   scale_shape_manual(values = species_shapes, name = "Host Species") +
   theme_tree2() +
   labs(title = "Photophysiological Phenotypes & D. trenchii Occurrence")
 
-df_sanger <- meta_tree %>%
-  select(SampleID_clean, `D. trenchii (Sanger)` = Sanger_Dtrenchii) %>%
+df_site <- meta_tree %>%
+  select(SampleID_clean, Site = Site_Label) %>%
   column_to_rownames("SampleID_clean")
 
 p1 <- p_tree + new_scale_fill()
 p1 <- gheatmap(
   p1,
-  df_sanger,
+  df_site,
   offset = 10,
+  width = 0.04,
+  colnames_angle = 90,
+  colnames_offset_y = 0.5
+) +
+  scale_fill_manual(values = site_colors, name = "Site")
+
+df_sanger <- meta_tree %>%
+  select(SampleID_clean, `D. trenchii (Sanger)` = Sanger_Dtrenchii) %>%
+  column_to_rownames("SampleID_clean")
+
+p2 <- p1 + new_scale_fill()
+p2 <- gheatmap(
+  p2,
+  df_sanger,
+  offset = 25,
   width = 0.04,
   colnames_angle = 90,
   colnames_offset_y = 0.5
@@ -211,11 +224,11 @@ df_pheno <- meta_tree %>%
   select(SampleID_clean, Phenotype) %>%
   column_to_rownames("SampleID_clean")
 
-p_final <- p1 + new_scale_fill()
+p_final <- p2 + new_scale_fill()
 p_final <- gheatmap(
   p_final,
   df_pheno,
-  offset = 35,
+  offset = 40,
   width = 0.04,
   colnames_angle = 90,
   colnames_offset_y = 0.5
